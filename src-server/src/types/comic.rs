@@ -1,4 +1,4 @@
-use std::{
+﻿use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
@@ -49,6 +49,10 @@ pub struct Comic {
     pub is_downloaded: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub comic_download_dir: Option<PathBuf>,
+
+    /// 封面完整 URL。由后端按 IMAGE_DOMAIN + album id 拼出，前端直接用。
+    #[serde(rename = "coverUrl", skip_deserializing, default)]
+    pub cover_url: String,
 }
 
 impl Comic {
@@ -89,7 +93,7 @@ impl Comic {
         }
 
         let mut comic = Comic {
-            id: id_str,
+            id: id_str.clone(),
             name: comic.name,
             addtime: comic.addtime,
             description: comic.description,
@@ -108,6 +112,7 @@ impl Comic {
             is_aids: comic.is_aids,
             is_downloaded: None,
             comic_download_dir: None,
+            cover_url: format!("https://{IMAGE_DOMAIN}/media/albums/{id_str}.jpg"),
         };
 
         let id_to_dir_map =
@@ -146,6 +151,7 @@ impl Comic {
             .context(format!("`{}`没有父目录", metadata_path.display()))?;
         comic.comic_download_dir = Some(parent.to_path_buf());
         comic.is_downloaded = Some(true);
+        comic.cover_url = comic.get_cover_url();
 
         comic
             .update_chapter_infos_fields()

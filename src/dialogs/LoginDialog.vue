@@ -1,25 +1,19 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref } from 'vue'
-import { commands, setToken, reconnectEvents } from '../bindings.ts'
+import { commands } from '../bindings.ts'
 import { useMessage } from 'naive-ui'
 import FloatLabelInput from '../components/FloatLabelInput.vue'
-import { useStore } from '../store.ts'
 
 const message = useMessage()
 
-const store = useStore()
 
 const showing = defineModel<boolean>('showing', { required: true })
 
-const emailInput = ref<string>('')
+const usernameInput = ref<string>('')
 const passwordInput = ref<string>('')
 
-async function onLogin(email: string, password: string) {
-  if (store.config === undefined) {
-    message.error('配置未加载')
-    return
-  }
-  if (email === '') {
+async function onLogin(username: string, password: string) {
+  if (username === '') {
     message.error('请输入用户名')
     return
   }
@@ -27,17 +21,15 @@ async function onLogin(email: string, password: string) {
     message.error('请输入密码')
     return
   }
-  const result = await commands.login(email, password)
+  // jm 登录成功后返回的是用户名，不是可当 Authorization 用的 token。
+  // 因此这里只提示登录成功，不再写 store.config.token。
+  const result = await commands.login(username, password)
   if (result.status === 'error') {
     console.error(result.error)
+    message.error(result.error.err_message)
     return
   }
   message.success('登录成功')
-  store.config.token = result.data
-  // 登录成功后写入 token 并建立 WebSocket 连接，
-  // 否则下载进度等实时事件永远收不到。
-  setToken(result.data)
-  reconnectEvents()
   showing.value = false
 }
 </script>
@@ -48,11 +40,11 @@ async function onLogin(email: string, password: string) {
       :showIcon="false"
       title="账号登录"
       positive-text="登录"
-      @positive-click="onLogin(emailInput, passwordInput)"
-      @keydown.enter="onLogin(emailInput, passwordInput)"
+      @positive-click="onLogin(usernameInput, passwordInput)"
+      @keydown.enter="onLogin(usernameInput, passwordInput)"
       @close="showing = false">
       <div class="flex flex-col gap-2">
-        <FloatLabelInput label="用户名" v-model:value="emailInput" />
+        <FloatLabelInput label="用户名" v-model:value="usernameInput" />
         <FloatLabelInput label="密码" v-model:value="passwordInput" type="password" />
       </div>
     </n-dialog>

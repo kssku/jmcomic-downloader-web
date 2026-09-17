@@ -1,5 +1,5 @@
-<script setup lang="ts">
-import { ref } from 'vue'
+﻿<script setup lang="ts">
+import { computed, ref } from 'vue'
 import { commands, SearchSort } from '../bindings.ts'
 import ComicCard from '../components/ComicCard.vue'
 import { PhMagnifyingGlass, PhArrowRight } from '@phosphor-icons/vue'
@@ -8,6 +8,9 @@ import { useStore } from '../store.ts'
 import { SelectProps } from 'naive-ui'
 
 const store = useStore()
+
+/** jm 搜索每页固定 80 条，用于把 total 换算成页数。 */
+const PAGE_SIZE = 80
 
 const sortOptions: SelectProps['options'] = [
   { label: '新到旧', value: 'TimeNewest' },
@@ -20,10 +23,19 @@ const searchInput = ref<string>('')
 const searching = ref<boolean>(false)
 const comicIdInput = ref<string>('')
 const sortSelected = ref<SearchSort>('TimeNewest')
+const currentPage = ref<number>(1)
 
-async function searchByKeyword(keyword: string, sort: SearchSort, page: number, categories: string[]) {
+// jm 搜索只返回 total，不返回页数；按固定页大小估算。
+const pageCount = computed(() => {
+  const total = store.searchResult?.total ?? 0
+  return Math.max(1, Math.ceil(total / PAGE_SIZE))
+})
+
+async function searchByKeyword(keyword: string, sort: SearchSort, page: number) {
   searching.value = true
-  const result = await commands.searchComic(keyword, sort, page, categories)
+  currentPage.value = page
+  // categories 参数后端已忽略，保留空数组以维持调用形状。
+  const result = await commands.searchComic(keyword, sort, page, [])
   if (result.status === 'error') {
     searching.value = false
     console.error(result.error)
@@ -52,20 +64,20 @@ async function pickComic() {
         size="small"
         v-model:value="searchInput"
         clearable
-        @keydown.enter="searchByKeyword(searchInput.trim(), sortSelected, 1, [])" />
+        @keydown.enter="searchByKeyword(searchInput.trim(), sortSelected, 1)" />
       <n-select
         class="w-45%"
         v-model:value="sortSelected"
         :options="sortOptions"
         :show-checkmark="false"
         size="small"
-        @update-value="searchByKeyword(searchInput.trim(), $event, 1, [])" />
+        @update-value="searchByKeyword(searchInput.trim(), $event, 1)" />
       <n-button
         :loading="searching"
         type="primary"
         size="small"
         class="w-15%"
-        @click="searchByKeyword(searchInput.trim(), sortSelected, 1, [])">
+        @click="searchByKeyword(searchInput.trim(), sortSelected, 1)">
         <template #icon>
           <n-icon size="22">
             <PhMagnifyingGlass />
@@ -87,22 +99,22 @@ async function pickComic() {
 
     <div v-if="store.searchResult !== undefined" class="flex flex-col gap-row-2 overflow-auto box-border px-2">
       <comic-card
-        v-for="{ id, title, author, categories, thumb, isDownloaded, comicDownloadDir } in store.searchResult.docs"
+        v-for="{ id, name, author, image, isDownloaded, comicDownloadDir } in store.searchResult.docs"
         :key="id"
         :comic-id="id"
-        :comic-title="title"
+        :comic-name="name"
         :comic-author="author"
-        :comic-categories="categories"
         :comic-downloaded="isDownloaded"
         :comic-download-dir="comicDownloadDir"
-        :thumb="thumb" />
+        :image="image" />
     </div>
 
     <n-pagination
       v-if="store.searchResult !== undefined"
       class="box-border p-2 pt-0 mt-auto"
-      :page-count="store.searchResult.pages"
-      :page="store.searchResult.page"
-      @update:page="searchByKeyword(searchInput.trim(), sortSelected, $event, [])" />
+      :page-count="pageCount"
+      :page="currentPage"
+      @update:page="searchByKeyword(searchInput.trim(), sortSelected, $event)" />
   </div>
 </template>
+

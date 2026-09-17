@@ -1,4 +1,4 @@
-//! REST 路由。把 `api::commands` 里的业务函数接到 HTTP 端点上。
+﻿//! REST 路由。把 `api::commands` 里的业务函数接到 HTTP 端点上。
 //!
 //! 路径设计原则：与原前端 `bindings.ts` 里的命令名一一对应，
 //! 这样前端数据层只需要把 `commands.xxx(args)` 换成 `api.post("/api/xxx", args)`，
@@ -144,7 +144,9 @@ async fn post_server_info(State(state): State<AppState>) -> Json<serde_json::Val
 
 #[derive(Deserialize)]
 struct LoginRequest {
-    email: String,
+    /// jm 登录用用户名。保留 `email` 作为别名，兼容旧前端与既有脚本。
+    #[serde(alias = "email")]
+    username: String,
     password: String,
 }
 
@@ -152,10 +154,11 @@ async fn login(
     State(state): State<AppState>,
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<String>, ApiError> {
-    let token = commands::login(&state.app, req.email, req.password)
+    // jm 登录成功后返回的是用户名，并非可当 Authorization 用的 token。
+    let username = commands::login(&state.app, req.username, req.password)
         .await
         .map_err(ApiError::from)?;
-    Ok(Json(token))
+    Ok(Json(username))
 }
 
 async fn user_profile(
@@ -538,3 +541,4 @@ fn read_log_tail(logs_dir: &std::path::Path, tail: usize) -> anyhow::Result<Vec<
     let start = all.len().saturating_sub(tail);
     Ok(all[start..].iter().map(|s| (*s).to_string()).collect())
 }
+

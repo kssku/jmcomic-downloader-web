@@ -1,4 +1,4 @@
-// 手写的 Web 数据层，替代原 tauri-specta 生成的 bindings.ts。
+﻿// 手写的 Web 数据层，替代原 tauri-specta 生成的 bindings.ts。
 // 保留 `commands.xxx(...)` 与 `events.yyy.listen(cb)` 的调用形状，只替换传输层：
 //   - commands  -> HTTP POST /api/...（错误体为 CommandError，转为 { status: "error", error }）
 //   - events    -> 单条 WebSocket 连接，按 topic 分发
@@ -46,11 +46,9 @@ export type JsonValue =
 	| JsonValue[]
 	| { [key in string]: JsonValue };
 
-export type Image = { originalName: string; path: string; fileServer: string };
 export type ImageRespData = {
-	originalName: string;
-	path: string;
-	fileServer: string;
+  path: string;
+  fileServer: string;
 };
 
 export type DownloadFormat = "Jpeg" | "Png" | "Webp" | "Original";
@@ -58,130 +56,116 @@ export type ProxyMode = "System" | "NoProxy" | "Custom";
 export type SearchSort = "TimeNewest" | "TimeOldest" | "LikeMost" | "ViewMost";
 export type LogLevel = "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR";
 export type DownloadTaskState =
-	| "Pending"
-	| "Downloading"
-	| "Paused"
-	| "Cancelled"
-	| "Completed"
-	| "Failed";
-
-export type Pagination<T> = {
-	total: number;
-	limit: number;
-	page: number;
-	pages: number;
-	docs: T[];
-};
+  | "Pending"
+  | "Downloading"
+  | "Paused"
+  | "Cancelled"
+  | "Completed"
+  | "Failed";
 
 export type Config = {
-	token: string;
-	downloadDir: string;
-	enableFileLogger: boolean;
-	downloadFormat: DownloadFormat;
-	dirFmt: string;
-	proxyMode: ProxyMode;
-	proxyHost: string;
-	proxyPort: number;
-	chapterConcurrency: number;
-	chapterDownloadIntervalSec: number;
-	imgConcurrency: number;
-	imgDownloadIntervalSec: number;
-	shouldDownloadCover: boolean;
-	apiBaseUrl: string;
+  token: string;
+  downloadDir: string;
+  enableFileLogger: boolean;
+  downloadFormat: DownloadFormat;
+  dirFmt: string;
+  proxyMode: ProxyMode;
+  proxyHost: string;
+  proxyPort: number;
+  chapterConcurrency: number;
+  chapterDownloadIntervalSec: number;
+  imgConcurrency: number;
+  imgDownloadIntervalSec: number;
+  shouldDownloadCover: boolean;
+  apiBaseUrl: string;
 };
 
 /** GET /api/server/info 的返回结构。 */
 export type ServerInfo = {
-	version: string;
-	dataDir: string;
-	downloadDir: string;
-	eventSubscribers: number;
-};
-
-export type Creator = {
-	id: string;
-	gender: string;
-	name: string;
-	title: string;
-	verified: boolean | null;
-	exp: number;
-	level: number;
-	characters: string[];
-	avatar: Image;
-	slogan: string;
-	role: string;
-	character: string;
+  version: string;
+  dataDir: string;
+  downloadDir: string;
+  eventSubscribers: number;
 };
 
 export type ChapterInfo = {
-	chapterId: string;
-	chapterTitle: string;
-	order: number;
-	isDownloaded?: boolean | null;
-	chapterDownloadDir?: string | null;
+  chapterId: string;
+  chapterTitle: string;
+  order: number;
+  isDownloaded?: boolean | null;
+  chapterDownloadDir?: string | null;
 };
 
+/** jm 详情。对应后端 `types::Comic`。 */
 export type Comic = {
-	id: string;
-	title: string;
-	author: string;
-	pagesCount: number;
-	chapterInfos: ChapterInfo[];
-	chapterCount: number;
-	finished: boolean;
-	categories: string[];
-	thumb: Image;
-	likesCount: number;
-	creator: Creator;
-	description: string;
-	chineseTeam: string;
-	tags: string[];
-	updatedAt: string;
-	createdAt: string;
-	allowDownload: boolean;
-	viewsCount: number;
-	isLiked: boolean;
-	commentsCount: number;
-	isDownloaded?: boolean | null;
-	comicDownloadDir?: string | null;
+  id: string;
+  name: string;
+  addtime: string;
+  description: string;
+  totalViews: string;
+  likes: string;
+  chapterInfos: ChapterInfo[];
+  seriesId: string;
+  commentTotal: string;
+  author: string[];
+  tags: string[];
+  works: string[];
+  actors: string[];
+  relatedList: { id: string; author: string; name: string; image: string }[];
+  liked: boolean;
+  isFavorite: boolean;
+  isAids: boolean;
+  isDownloaded?: boolean | null;
+  comicDownloadDir?: string | null;
+  /** 封面完整 URL，后端已拼好。 */
+  coverUrl: string;
 };
 
-
+/** jm 搜索单条。对应后端 `types::ComicInSearch`。 */
 export type ComicInSearch = {
-	id: string;
-	author: string;
-	categories: string[];
-	chineseTeam: string;
-	createdAt: string;
-	description: string;
-	finished: boolean;
-	likesCount: number;
-	tags: string[];
-	thumb: ImageRespData;
-	title: string;
-	totalLikes: number | null;
-	totalViews: number | null;
-	updatedAt: string;
-	isDownloaded: boolean;
-	comicDownloadDir: string;
+  id: string;
+  author: string;
+  name: string;
+  image: string;
+  liked: boolean;
+  isFavorite: boolean;
+  updateAt: number;
+  isDownloaded: boolean;
+  comicDownloadDir: string;
 };
 
-export type SearchResult = Pagination<ComicInSearch>;
+/** 对应后端 `types::SearchResult`。注意没有 limit/page/pages。 */
+export type SearchResult = {
+  searchQuery: string;
+  total: number;
+  docs: ComicInSearch[];
+};
 
+/** 对应后端 `responses::GetUserProfileRespData`。 */
 export type UserProfileDetailRespData = {
-	_id: string;
-	gender: string;
-	name: string;
-	title: string;
-	verified: boolean;
-	exp: number;
-	level: number;
-	characters: string[];
-	avatar?: ImageRespData;
-	birthday: string;
-	email: string;
-	created_at: string;
-	isPunched: boolean;
+  uid: string;
+  username: string;
+  email: string;
+  emailverified: string;
+  photo: string;
+  fname: string;
+  gender: string;
+  message?: string | null;
+  coin: number;
+  albumFavorites: number;
+  s: string;
+  levelName: string;
+  level: number;
+  nextLevelExp: number;
+  exp: string;
+  expPercent: number;
+  albumFavoritesMax: number;
+  adFree: boolean;
+  charge: string;
+  jar: string;
+  invitationQrcode: string;
+  invitationUrl: string;
+  invitedCnt: string;
 };
 
 export type LogEvent = {
@@ -310,17 +294,16 @@ export const commands = {
 		return await callResult<null>(() => post("/api/config", { config }));
 	},
 
-	async login(
-		email: string,
-		password: string,
-	): Promise<Result<string, CommandError>> {
-		const result = await callResult<string>(() =>
-			post("/api/login", { email, password }),
-		);
-		// 登录成功即把 token 存下来，供后续所有请求使用。
-		if (result.status === "ok" && result.data) setToken(result.data);
-		return result;
-	},
+  async login(
+    username: string,
+    password: string,
+  ): Promise<Result<string, CommandError>> {
+    // 注意：jm 登录成功后返回的是「用户名」，不是可当 Authorization 用的 token。
+    // 后端鉴权走独立的 AuthConfig（静态 token / Basic），与 jm 登录解耦。
+    return await callResult<string>(() =>
+      post("/api/login", { username, password }),
+    );
+  },
 
 	async getUserProfile(): Promise<
 		Result<UserProfileDetailRespData, CommandError>

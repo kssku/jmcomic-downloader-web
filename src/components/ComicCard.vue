@@ -1,5 +1,5 @@
-<script setup lang="ts">
-import { commands, ImageRespData } from '../bindings.ts'
+﻿<script setup lang="ts">
+import { commands } from '../bindings.ts'
 import { useStore } from '../store.ts'
 import IconButton from './IconButton.vue'
 import { PhDownloadSimple } from '@phosphor-icons/vue'
@@ -8,12 +8,12 @@ const store = useStore()
 
 const props = defineProps<{
   comicId: string
-  comicTitle: string
+  comicName: string
   comicAuthor: string
-  comicCategories: string[]
   comicDownloaded: boolean
   comicDownloadDir: string
-  thumb: ImageRespData
+  /** jm 封面完整 URL。可能为空（搜索命中单本 redirect 时后端不填）。 */
+  image: string
 }>()
 
 async function downloadComic() {
@@ -33,8 +33,6 @@ async function pickComic() {
   store.pickedComic = result.data
   store.currentTabName = 'chapter'
 }
-
-
 </script>
 
 <template>
@@ -42,7 +40,7 @@ async function pickComic() {
     <div class="flex">
       <img
         class="w-24 aspect-[3/4] object-contain mr-4 cursor-pointer transform transition-transform duration-200 hover:scale-106"
-        :src="`${thumb.fileServer}/static/${thumb.path}`"
+        :src="image"
         alt=""
         referrerpolicy="no-referrer"
         @click="pickComic" />
@@ -51,10 +49,9 @@ async function pickComic() {
           <span
             class="font-bold text-lg line-clamp-2 cursor-pointer transition-colors duration-200 hover:text-blue-5"
             @click="pickComic">
-            {{ comicTitle }}
+            {{ comicName }}
           </span>
           <span class="text-red">作者：{{ comicAuthor }}</span>
-          <span class="text-gray" v-html="`分类：${comicCategories}`"></span>
         </div>
         <div class="flex">
           <IconButton class="ml-auto" title="一键下载所有章节" @click="downloadComic">

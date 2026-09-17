@@ -1,4 +1,4 @@
-# 交接文档
+﻿# 交接文档
 
 ## 项目
 
@@ -39,11 +39,50 @@ block_num:
 
 `stitch_img`：把图按 block_num 纵向切块后逆序重排。
 
+### 阶段 2：前端 jm 适配（本轮）
+
+**后端**
+
+- `types/comic.rs`：`Comic` 新增 `coverUrl` 字段（`#[serde(rename = "coverUrl", skip_deserializing, default)]`），
+  由 `from_comic_resp_data` 与 `from_metadata` 显式填充（`get_cover_url()`）。前端详情页直接用，无需知道图床域名。
+- `api/routes.rs`：`LoginRequest` 字段 `email` -> `username`（`#[serde(alias = "email")]` 兼容旧前端/脚本）；
+  `login` handler 变量正名。jm 登录返回用户名，**不是**可当 Authorization 用的 token。
+
+**前端**
+
+- `src/bindings.ts`：类型全面对齐 jm——
+  - 删 `Creator` / 旧 `Comic` / 旧 `ComicInSearch` / `Pagination` / `Image`。
+  - 新 `Comic`（`name`/`author[]`/`tags[]`/`likes`/`totalViews`/`seriesId`/`chapterInfos`/`coverUrl`…）。
+  - 新 `ComicInSearch`（`name`/`author`/`image`/`liked`/`isFavorite`/`updateAt`…）。
+  - 新 `SearchResult`（`searchQuery`/`total`/`docs`，**无 limit/page/pages**）。
+  - 新 `UserProfileDetailRespData`（`username`/`photo`/`fname`/`exp`/`levelName`…）。
+  - `login(username, password)` 参数改名；去掉 `setToken`（jm 登录返回值不是 token）。
+- `src/panes/SearchPane.vue`：解构改 `name`/`image`；分页按 `total` / `PAGE_SIZE(80)` 估算（jm 搜索不返回页数）。
+- `src/components/ComicCard.vue`：props 改 `comicName`/`comicAuthor`/`image`；封面直接 `<img :src="image">`（jm 返回完整 URL）；去掉 `categories`。
+- `src/panes/ChapterPane.vue`：详情区 `coverUrl` / `name` / `author.join('、')` / `tags.join('、')`。
+- `src/panes/ProgressesPane/components/{Completed,Uncompleted}Progresses.vue`：`comic.title` -> `comic.name`。
+- `src/dialogs/LoginDialog.vue`：`username` 参数；不再写 `store.config.token`；成功仅提示。
+- `src/AppContent.vue`：头像 `userProfile.photo`（后端已拼完整 URL），用户名 `userProfile.username`。
+
+**鉴权模型澄清（重要）**
+
+后端 `auth.rs` 用独立的静态 `AuthConfig`（Bearer token / Basic），与 jm 登录**解耦**。
+jm 登录只把 cookie 存进 `JmClient`，不产出可作 Authorization 的 token。
+前端 `Authorization` 输入框 / `PICA_AUTH_DISABLED` 仍是唯一的 API 鉴权入口；
+`LoginDialog` 现在只做 jm 账号登录，不再篡改 token。
+
+**验证**
+
+- `cargo check`：0 错误 0 警告；`cargo test`：42 passed。
+- 前端 `vue-tsc` 未能在本机运行（无 `node_modules` 且无网络），改动经人工逐文件审查。
+
 ## 下一步
 
-1. **前端 UI 改 jm**：搜索 / 详情 / 收藏 / 周榜的数据字段与文案。
-2. 端到端部署验证（登录、搜索、下载一章、断点续传）。
-3. 真机跑一遍 jm 图片还原，确认 `calculate_block_num` 与 `stitch_img` 正确。
+1. 端到端部署验证（jm 登录、搜索、点开详情、下载一章、断点续传）。
+2. 真机跑一遍 jm 图片还原，确认 `calculate_block_num` 与 `stitch_img` 正确。
+3. （可选）后端补收藏 / 周榜路由——`responses/get_favorite_*.rs`、`get_weekly_*.rs` 类型已在，
+   但 `commands.rs` / `routes.rs` 尚未接线，前端也没有对应页面。
+4. 前端 `vue-tsc` 类型检查需在装有 `node_modules` 的环境补跑。
 
 ## 本机参考
 
@@ -55,3 +94,4 @@ block_num:
 1. 路线 B（保留 String 架构）。
 2. 包名 `jmcomic-server`，数据目录 `JM_DATA_DIR`，db `jm_server.db`。
 3. MIT，保留原项目版权。
+

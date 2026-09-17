@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { SelectionArea, SelectionEvent } from '@viselect/vue'
 import { nextTick, ref, watch, watchEffect, computed } from 'vue'
 import { ChapterInfo, commands, DownloadTaskState } from '../bindings.ts'
@@ -192,14 +192,14 @@ function isDownloading(state: State) {
     <div v-if="store.pickedComic !== undefined" class="flex p-2 pt-0">
       <img
         class="w-24 mr-4"
-        :src="`${store.pickedComic.thumb.fileServer}/static/${store.pickedComic.thumb.path}`"
+        :src="store.pickedComic.coverUrl"
         alt=""
         referrerpolicy="no-referrer" />
       <div class="flex flex-col w-full justify-between">
         <div class="flex flex-col h-full">
-          <span class="font-bold text-lg line-clamp-2">{{ store.pickedComic.title }}</span>
-          <span class="text-red">作者：{{ store.pickedComic.author }}</span>
-          <span class="text-gray" v-html="`分类：${store.pickedComic.categories}`"></span>
+          <span class="font-bold text-lg line-clamp-2">{{ store.pickedComic.name }}</span>
+          <span class="text-red">作者：{{ store.pickedComic.author.join('、') }}</span>
+          <span class="text-gray">标签：{{ store.pickedComic.tags.join('、') }}</span>
         </div>
       </div>
     </div>

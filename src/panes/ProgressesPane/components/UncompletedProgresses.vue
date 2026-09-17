@@ -1,4 +1,4 @@
-<script setup lang="tsx">
+﻿<script setup lang="tsx">
 import { ProgressData } from '../../../types.ts'
 import { ref, watchEffect, computed, nextTick } from 'vue'
 import { SelectionArea, SelectionEvent } from '@viselect/vue'
@@ -279,8 +279,8 @@ function stateToColorClass(state: DownloadTaskState) {
         @dblclick="() => handleProgressDoubleClick(state, chapterId)"
         @contextmenu="() => handleProgressContextMenu(chapterId)">
         <div class="grid grid-cols-[1fr_1fr]">
-          <div class="text-ellipsis whitespace-nowrap overflow-hidden" :title="comic.title">
-            {{ comic.title }}
+          <div class="text-ellipsis whitespace-nowrap overflow-hidden" :title="comic.name">
+            {{ comic.name }}
           </div>
           <div class="text-ellipsis whitespace-nowrap overflow-hidden" :title="chapterInfo.chapterTitle">
             {{ chapterInfo.chapterTitle }}
@@ -329,3 +329,4 @@ function stateToColorClass(state: DownloadTaskState) {
   @apply bg-[rgba(46,115,252,0.5)];
 }
 </style>
+
