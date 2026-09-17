@@ -53,7 +53,7 @@ pub fn save_config(app: &AppContext, config: Config) -> CommandResult<()> {
     tracing::debug!("保存配置成功");
 
     if proxy_changed || api_base_url_changed {
-        let pica_client = app.get_pica_client();
+        let pica_client = app.get_jm_client();
         pica_client.reload_client();
         if api_base_url_changed {
             tracing::info!("API Base URL 已更新为: {}", pica_client.base_url());
@@ -78,7 +78,7 @@ pub fn save_config(app: &AppContext, config: Config) -> CommandResult<()> {
 // ════════════════════════════════════════════════════════════════
 
 pub async fn login(app: &AppContext, email: String, password: String) -> CommandResult<String> {
-    let pica_client = app.get_pica_client();
+    let pica_client = app.get_jm_client();
 
     let token = pica_client
         .login(&email, &password)
@@ -98,7 +98,7 @@ pub async fn login(app: &AppContext, email: String, password: String) -> Command
 }
 
 pub async fn get_user_profile(app: &AppContext) -> CommandResult<UserProfileDetailRespData> {
-    let pica_client = app.get_pica_client();
+    let pica_client = app.get_jm_client();
 
     let user_profile = pica_client
         .get_user_profile()
@@ -119,7 +119,7 @@ pub async fn search_comic(
     page: i32,
     categories: Vec<String>,
 ) -> CommandResult<SearchResult> {
-    let pica_client = app.get_pica_client();
+    let pica_client = app.get_jm_client();
 
     let search_resp_data = pica_client
         .search_comic(&keyword, sort, page, categories)
@@ -152,7 +152,7 @@ pub fn create_download_task(
 ) -> CommandResult<()> {
     let download_manager = app.get_download_manager();
 
-    let comic_title = comic.title.clone();
+    let comic_title = comic.name.clone();
     download_manager
         .create_download_task(comic, chapter_id.clone())
         .context(format!(
@@ -203,7 +203,7 @@ pub async fn download_comic(app: &AppContext, comic_id: String) -> CommandResult
         .context(format!("获取ID为`{comic_id}`的漫画失败"))
         .map_err(|err| CommandError::from("一键下载漫画失败", err))?;
 
-    let comic_title = &comic.title;
+    let comic_title = &comic.name;
 
     let chapter_infos: Vec<&ChapterInfo> = comic
         .chapter_infos
@@ -271,7 +271,7 @@ pub async fn download_by_id(
         .context(format!("获取ID为`{comic_id}`的漫画失败"))
         .map_err(|err| CommandError::from("按ID下载漫画失败", err))?;
 
-    let comic_title = comic.title.clone();
+    let comic_title = comic.name.clone();
 
     // ── 指定章节：只下一章 ──────────────────────────────
     if let Some(chapter_id) = chapter_id {
@@ -797,11 +797,11 @@ pub fn get_synced_comic(app: &AppContext, mut comic: Comic) -> CommandResult<Com
     let id_to_dir_map = utils::create_id_to_dir_map(app)
         .context("创建漫画ID到下载目录映射失败")
         .map_err(|err| {
-            CommandError::from(&format!("漫画`{}`同步Comic的字段失败", comic.title), err)
+            CommandError::from(&format!("漫画`{}`同步Comic的字段失败", comic.name), err)
         })?;
 
     comic.update_fields(&id_to_dir_map).map_err(|err| {
-        CommandError::from(&format!("漫画`{}`同步Comic的字段失败", comic.title), err)
+        CommandError::from(&format!("漫画`{}`同步Comic的字段失败", comic.name), err)
     })?;
 
     Ok(comic)
@@ -814,7 +814,7 @@ pub fn get_synced_comic_in_search(
     let id_to_dir_map = utils::create_id_to_dir_map(app)
         .context("创建漫画ID到下载目录映射失败")
         .map_err(|err| {
-            let err_title = format!("漫画`{}`同步ComicInSearch的字段失败", comic.title);
+            let err_title = format!("漫画`{}`同步ComicInSearch的字段失败", comic.name);
             CommandError::from(&err_title, err)
         })?;
 

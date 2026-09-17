@@ -1,189 +1,130 @@
-# HANDOFF - 项目交接文档
+# HANDOFF - jmcomic-downloader-web 交接文档
 
-> 最后更新：2026-09-17（验收 1/2/3/4 通过）
-> 当前提交：`9288941`（本地 / origin / NAS 三方一致）
-> NAS 部署镜像：`5791c2076b87`
+> 最后更新：2026-09-17
+> 当前提交：`44e4f33`（阶段 1a 完成，已 push）
+> 仓库：https://github.com/kssku/jmcomic-downloader-web（公开）
 
 ---
 
 ## 一、项目简介
 
-哔咔漫画（pica）下载器 Web 版。Rust 后端（axum）+ 前端 SPA，部署在 NAS 的 Docker 容器中，
-与青龙（QingLong）后处理流水线对接：下载 → 打 CBZ → 上传 115 网盘归档。
+禁漫天堂（jmcomic / 18comic）下载器 **Web/服务端版**。
+Rust 后端（axum）+ 前端 SPA，部署在 NAS 的 Docker 容器中，
+对接青龙（QingLong）后处理流水线：下载 -> 打 CBZ -> 上传 115 网盘归档。
 
-### 仓库结构
-
-```
-src-server/            Rust 后端
-  src/
-    api/               HTTP 路由与命令层（routes.rs / commands.rs）
-    responses/         皮卡 API 响应结构
-    store/             SQLite 持久化（migrations/repo/types）
-    types/             领域类型（comic.rs 等）
-    download_manager.rs  下载调度核心
-    pica_client.rs     皮卡 API 客户端（代理、签名、超时、重试）
-    config.rs          配置结构
-src/                   前端（TS + Vite）
-docs/                  设计/交接文档
-docker-compose.yml     部署编排
-```
+**来源**：
+- 服务端骨架：从 `picacomic-downloader-web`（哔咔版）复制
+- 数据源逻辑：参考 `lanyeeee/jmcomic-downloader`（桌面 Tauri 版，MIT）
 
 ---
 
-## 二、部署环境（NAS）
+## 二、改造策略（路线 B）
+
+**保留** picacomic 服务端的 `String` 架构（chapter_id: String、SQLite、路由、青龙对接、目录格式），
+**只把数据源换成 jm**。
+
+理由：pica-server 架构已验证通过全部 6 条验收；jm 桌面版的 `types/` 为 Tauri 设计（i64 id），
+照搬会引入大量不必要改动并破坏青龙对接。
+
+---
+
+## 三、jm 数据源要点（已移植到 jm_client.rs）
 
 | 项 | 值 |
 |---|---|
-| 源码仓库 | `/vol1/1000/github/picacomic-downloader-web` |
-| 运行时数据 | `/vol1/1000/pica-server/`（config.json、pica_server.db、日志/） |
-| compose 文件 | `docker-compose.yml`（`build: context: .`，镜像 `pica-server:latest`） |
-| 下载目录（宿主） | `/vol1/1000/comic/pika/comic`（容器内 `/comic-download`） |
-| CBZ 输出 | `/vol1/1000/comic/pika/cbz` |
-| 115 归档 | `/vol1/1000/115/115open/comic/pika/{年份}/{comic_id}/` |
-| 青龙脚本 | `/vol1/1000/docker/qinglong/data/scripts/comic/pika/` |
-| API 端口 | 容器 `8080`，健康检查 `GET /api/health` |
+| 密钥 | `18comicAPP` / `18comicAPPContent` / `185Hcomic3PAPP7R` / 版本 `2.0.13` |
+| 签名 | `token = md5(ts + secret)`；`tokenparam = "{ts},{version}"` |
+| 响应解密 | AES-256-ECB，key = `md5(ts + APP_DATA_SECRET)`，输入 Base64 |
+| 图片域 | `cdn-msp2.jmapiproxy2.cc` |
+| 图片 URL | `https://{IMAGE_DOMAIN}/media/photos/{chapter_id}/{filename}` |
+| 封面 URL | `https://{IMAGE_DOMAIN}/media/albums/{id}.jpg` |
+| API 域（5 个） | `www.cdnzack.cc` / `www.cdnhth.cc` / `www.cdnhth.net` / `www.cdnbea.net` / `www.cdn-mspjmapiproxy.xyz` |
+| 接口 | `/login` `/search` `/album` `/chapter` `/chapter_view_template` `/favorite` `/week` |
+| 图片还原 | scramble 切块重排（见下） |
 
-### 部署流程
-
-```bash
-# 1. 本地提交并推送
-git add -A && git commit -m "..." && git push origin main
-
-# 2. NAS 拉取 + 构建 + 重启
-ssh nas "cd /vol1/1000/github/picacomic-downloader-web && \
-  git pull && \
-  docker compose build pica-server && \
-  docker compose up -d pica-server"
-
-# 3. 验证
-ssh nas "curl -sS http://127.0.0.1:8080/api/health"
-```
-
-### NAS 的 git remote（已改 SSH）
-
-- remote：`git@github.com:kssku/picacomic-downloader-web.git`（曾用 HTTPS+PAT，已废弃）
-- SSH key：`~/.ssh/id_ed25519_github`（公钥已加为 GitHub Deploy Key，只读）
+**scramble 还原算法**（jm 图片被切块乱序）：
+- `id < scramble_id` -> 0 块（不切）
+- `scramble_id <= id < 268850` -> 10 块
+- `id >= 268850` -> `x = (id<421926 ? 10 : 8)`，`block_num = (md5(id+filename) 末字符 % x) * 2 + 2`
+- `stitch_img`：纵切 block_num 块，逆序重排
 
 ---
 
-## 三、网络环境（关键约束）
+## 四、已完成（阶段 1a，提交 44e4f33）
 
-**NAS 出口 IP 在中国大陆（如 `112.27.182.119`），直连国外站点被墙。**
-
-| 目标 | NAS 直连 | 说明 |
-|---|---|---|
-| 百度 / QQ | ✅ | 国内正常 |
-| github.com | ❌ 超时 | 被墙 |
-| `img.picacomic.com` (199.96.58.157) | ❌ | 被墙 |
-| `storage-b.picacomic.com` (31.13.69.245) | ❌ | 被墙 + DNS 污染 |
-| `storage1.picacomic.com` (168.143.162.42) | ❌ | 被墙 |
-
-**结论：下载器必须走代理**（mihomo `host.docker.internal:7890`）。
-皮卡 API（`picaapi.go2778.com`）与图片 CDN 均需代理；
-网页版 `manhuapica.com` 无备用直连域名，与下载器共用同一后端。
-
-> 代理抖动会导致偶发 `tls handshake eof`，由图片重试 + API 超时放宽吸收。
-
----
-
-## 四、功能清单
-
-- 认证：登录、用户资料、token 中间件
-- 搜索 / 详情 / 收藏夹
-- 下载：按章节 / 整本 / 按 ID；暂停 / 恢复 / 取消 / 重试
-- 并发：章节并发 + 图片并发；限速（间隔秒）
-- 持久化：SQLite（download_task + download_image），崩溃/重启恢复，断点续传
-- 配置热更新：并发 / 代理 / api_base_url / 文件日志，无需重启
-- 任务查询（青龙契约）：`/api/tasks`、`/api/tasks/stats`、字段同步
-- 日志：文件日志 + `/api/logs`
-- WebSocket：`/api/ws` 推送任务事件
-
----
-
-## 五、目录格式与青龙对接
-
-**默认 `dir_fmt = "{comic_id}/{order}"`**（2026-09-17 由 `{comic_title}/{order} {chapter_title}` 改来）。
-
-下载器落盘：
-```
-{downloadDir}/{comic_id}/{order}/{图片}.jpg
-```
-
-后处理脚本 `pica_postprocess.py`：
-- 读漫画目录的 `元数据.json` 取 `id`
-- 章节 = 子目录（跳过 `.` 开头与含下载标记的），读 `章节元数据.json` 的 `order`
-- 打包为 `{cbz_output_dir}/{年份}/{comic_id}/{order:03d}.cbz`
-- 打包成功后删源目录
-
-上传脚本 `pica_upload.py`：监控 `cbz/`，移动到 115 归档后删本地 CBZ。
-
-**端到端已验证**：下载 → 打 CBZ → 归档 115 全通。
-
----
-
-## 六、修复历史
-
-| 提交 | 内容 |
+| 文件 | 内容 |
 |---|---|
-| `5e82038` | fix(proxy): System 模式显式读取环境变量代理，修复图片下载 tls handshake eof |
-| `628f9c0` | fix(retry): 链接阶段失败的章节不再被误判为 completed |
-| `7a9a60a` | fix(api): api_client 超时 2s→15s，重试预算 3s→30s |
-| `1c84bc1`→`9288941` | feat(dir-fmt): 默认目录格式改为 {comic_id}/{order} |
-
-### 缺陷 1：失败被误判 completed
-
-- 根因：`retry_task` 用 `unfinished == 0` 判断完成；链接阶段失败时 `download_image` 无记录，`total=0, done=0 → unfinished=0` → 误判完成。
-- 修复：抽 `should_finalize_as_completed(total, unfinished)`，要求 `total > 0 && unfinished == 0`；`total==0` 落回重调度。
-
-### 缺陷 3：api_client 超时过紧
-
-- 根因：`timeout(2s)`，并发拉全部页时任一页抖动整章失败。
-- 修复：`API_REQUEST_TIMEOUT_SECS=15`、`API_RETRY_TOTAL_SECS=30`。
-
-### 缺陷 2：img 主机间歇不可达
-
-- 定性：**非代码缺陷**，是 NAS 网络需代理（见第三节）。
+| `src-server/src/jm_client.rs` | 432 行：请求签名、AES 响应解密、登录/搜索/详情/章节/scramble_id/收藏接口、代理复用 |
+| `src-server/src/responses/` | 9 个文件，全部换成 jm 结构（已去 specta） |
+| `src-server/Cargo.toml` | 加 `aes` / `md5`；reqwest 加 `cookies` feature；包名 `jmcomic-server` |
+| `src-server/src/context.rs` | `PicaClient` -> `JmClient`、`JM_DATA_DIR`、`jm_server.db` |
+| `src-server/src/extensions.rs` | `get_jm_client`、`ClientBuilderExt::set_proxy`（含 System 代理修复） |
+| `src-server/src/lib.rs` | 注册 `jm_client` |
+| `src-server/src/types/mod.rs` | 加 `Category` / `CategorySub` |
+| `src-server/src/utils.rs` | 加 `md5_hex` |
+| `src-server/src/types/comic.rs` | 重写为 jm 字段（String id，name、series_id、author: Vec<String>） |
 
 ---
 
-## 七、验收标准现状
+## 五、待办（阶段 1b/1c）—— 核心工作
 
-| 标准 | 状态 |
+> 目标：`cargo check` 通过，服务端能编译。
+
+### 1b 数据模型适配
+- [ ] `types/favorite_sort.rs`：改为 jm 的 `FavoriteSort { FavoriteTime, UpdateTime }`（已写好草稿）
+- [ ] `types/search_sort.rs`：改为 jm 的 `SearchSort { Latest, View, Picture, Like }`（已写好草稿）
+- [ ] `types/get_favorite_result.rs`：`GetFavoriteResult` / `ComicInFavorite` 按 jm 结构（id: String, name, image）重写
+- [ ] `types/search_result.rs`：`SearchResult` / `ComicInSearch` 按 jm 结构重写
+- [ ] `types/mod.rs`：导出 `FavoriteSort`（jm_client 引用 `crate::types::FavoriteSort`）
+- [ ] `types/comic_info.rs`（可选）：jm 有，按需加
+
+### 1c 调度/命令层适配
+- [ ] `utils.rs`：**重写 `get_comic`** —— jm 用 `jm_client.get_comic(aid: i64)` 一次拉全（无分页）；`create_id_to_dir_map` 的 id 解析改 String（已是）
+- [ ] `api/commands.rs`：
+  - `get_user_profile` 返回类型 `UserProfileDetailRespData` -> `GetUserProfileRespData`
+  - `search_comic(keyword, sort, page, categories)` -> jm 的 `search(keyword, page, sort, category, category_sub)`
+  - `get_comic(comic_id: String)` 内部把 String 转 i64 调 jm
+  - 引用 `ComicInSearch.name`（原 `title`）
+- [ ] `api/routes.rs`：`UserProfileDetailRespData` -> `GetUserProfileRespData`
+- [ ] `download_manager.rs`（**最重**）：
+  - `comic.thumb` -> `comic.get_cover_url()`（3 处）
+  - `get_chapter_img` -> `jm_client.get_img_data_and_format(url)` + **scramble 还原**
+  - `Comic` 构造处 `title` -> `name`
+- [ ] `jm_client.rs`：补 `search` 的调用方对齐；如需可加便捷方法 `get_comic_by_str`
+
+### 已知问题
+- [ ] **编码损坏**：部分用 PowerShell 写入的文件中文注释变乱码（`utils.rs`、`commands.rs` 等）；逻辑不受影响，需以正确 UTF-8 重写
+- [ ] `types/get_favorite_result.rs` / `search_result.rs` 仍 import pica 的 `ImageRespData` / `Pagination`
+
+---
+
+## 六、参考路径（本机）
+
+| 用途 | 路径 |
 |---|---|
-| 1 重启不丢（恢复） | ✅ 通过（重启后任务恢复、进度保留 84→继续增长） |
-| 2 不重复下载 | ✅ 通过（重启前文件 mtime 未变，85+163=248 精确吻合，0 重复） |
-| 3 单图失败不炸章节 | ✅ 通过（代码审查 + 单测 `single_image_failure_does_not_affect_siblings_and_retry_targets_only_it`） |
-| 4 热更新 imgConcurrency 20→10 | ✅ 通过（热更新生效、不中断、单调推进） |
-| 5 日志可控 | ✅ 通过（120 页章节 INFO 下仅 17 行，远低于 200 上限） |
-| 6 API 契约 | ✅ 通过（`/api/tasks` 支持 state/comicId/since/limit 过滤；注：为 30 天任务视图，非永久台账） |
+| jm 桌面版源码（参考） | `E:\github\jmcomic-downloader-main` |
+| 本项目（web 版） | `E:\github\jmcomic-downloader-web` |
+| 哔咔 web 版（模板） | 见 picacomic-downloader-web |
 
 ---
 
-## 八、运维常用命令
+## 七、关键决策记录
 
-```bash
-# 健康
-curl -sS http://127.0.0.1:8080/api/health
-
-# 任务列表
-curl -sS http://127.0.0.1:8080/api/tasks
-
-# 读配置（含 token，慎用）
-curl -sS http://127.0.0.1:8080/api/config
-
-# 改配置（整体读-改-写）
-# GET /api/config -> 改字段 -> POST /api/config
-
-# 容器状态 / 日志
-ssh nas "docker ps --filter name=pica-server"
-ssh nas "tail -f /vol1/1000/pica-server/日志/picacomic-downloader.$(date +%F).log"
-```
+1. **路线 B**：保留 String 架构，只换数据源（避免破坏已验证的青龙对接）
+2. **包名**：`jmcomic-server`
+3. **数据目录**：`JM_DATA_DIR`，db 文件 `jm_server.db`
+4. **许可**：MIT，保留原项目版权声明（README 待加免责声明）
 
 ---
 
-## 九、注意事项 / 待办
+## 八、下一步建议
 
-- **配置持久化**：改 `config.rs` 默认值不影响已有 `config.json`，需另行改配置文件（或用 API）。
-- **dir_fmt 影响恢复**：DB 里持久化了 `dir_fmt`，中途改格式会导致旧任务恢复时找不到文件。
-- **PAT**：NAS 曾用 HTTPS+PAT，已吊销并改 SSH。
-- 待办：验收标准 2/3 的覆盖确认。
+1. 按「阶段 1b -> 1c」顺序推进，每步 `cargo check`
+2. 优先修 `utils.rs`（get_comic）与 `commands.rs`（签名），再啃 `download_manager.rs`（scramble）
+3. 全部编译通过后：前端 UI 改 jm（搜索/详情/收藏/周榜）、README 免责声明、部署验证
+
+---
+
+## 九、免责声明（README 待补）
+
+本工具仅作学习、研究、交流使用。使用者应自行承担风险。作者不对使用本工具导致的任何损失、法律纠纷或其他后果负责。

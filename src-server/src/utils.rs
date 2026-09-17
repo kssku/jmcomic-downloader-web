@@ -36,7 +36,7 @@ pub fn filename_filter(s: &str) -> String {
 
 pub async fn get_comic(app: &AppContext, comic_id: &str) -> anyhow::Result<Comic> {
     // 获取漫画详情和章节的第一页
-    let pica_client = app.get_pica_client();
+    let pica_client = app.get_jm_client();
 
     let (comic, first_page) = tokio::try_join!(
         async {

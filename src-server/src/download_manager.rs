@@ -186,7 +186,7 @@ impl DownloadManager {
             .await
             .context(format!("获取漫画`{}`信息失败", db_task.comic_id))?;
 
-        let comic_title = comic.title.clone();
+        let comic_title = comic.name.clone();
         self.create_download_task(comic, chapter_id.clone())
             .context("重建下载任务失败")?;
 
@@ -479,7 +479,7 @@ impl DownloadTask {
         let task = DbTask {
             chapter_id: self.chapter_info.chapter_id.clone(),
             comic_id: self.comic.id.clone(),
-            comic_title: self.comic.title.clone(),
+            comic_title: self.comic.name.clone(),
             chapter_title: self.chapter_info.chapter_title.clone(),
             chapter_order: self.chapter_info.order,
             state: DownloadTaskState::Pending.to_db(),
@@ -524,7 +524,7 @@ impl DownloadTask {
     }
 
     async fn download_chapter(&self) {
-        let comic_title = &self.comic.title;
+        let comic_title = &self.comic.name;
         let chapter_title = &self.chapter_info.chapter_title;
 
         if let Err(err) = self.save_comic_metadata() {
@@ -727,7 +727,7 @@ impl DownloadTask {
 
         let (img_data, _format) = self
             .app
-            .get_pica_client()
+            .get_jm_client()
             .get_img_data_and_format(&url)
             .await
             .context(format!("下载图片`{url}`失败"))?;
@@ -739,7 +739,7 @@ impl DownloadTask {
     }
 
     fn create_temp_download_dir(&self) -> Option<PathBuf> {
-        let comic_title = &self.comic.title;
+        let comic_title = &self.comic.name;
         let chapter_title = &self.chapter_info.chapter_title;
 
         let temp_download_dir = match self.chapter_info.get_temp_download_dir() {
@@ -781,12 +781,12 @@ impl DownloadTask {
     }
 
     async fn get_img_urls(&self) -> anyhow::Result<Vec<String>> {
-        let comic_title = &self.comic.title;
+        let comic_title = &self.comic.name;
         let chapter_title = &self.chapter_info.chapter_title;
         let comic_id = &self.comic.id;
         let chapter_order = self.chapter_info.order;
 
-        let pica_client = self.app.get_pica_client();
+        let pica_client = self.app.get_jm_client();
 
         let first_page = pica_client
             .get_chapter_img(comic_id, chapter_order, 1)
@@ -838,7 +838,7 @@ impl DownloadTask {
     }
 
     fn rename_temp_download_dir(&self, temp_download_dir: &PathBuf) -> anyhow::Result<()> {
-        let comic_title = &self.comic.title;
+        let comic_title = &self.comic.name;
         let chapter_title = &self.chapter_info.chapter_title;
         let chapter_download_dir = self
             .chapter_info
@@ -870,7 +870,7 @@ impl DownloadTask {
 
     /// 删除临时下载目录中与`config.download_format`对不上的文件
     fn clean_temp_download_dir(&self, temp_download_dir: &Path) {
-        let comic_title = &self.comic.title;
+        let comic_title = &self.comic.name;
         let chapter_title = &self.chapter_info.chapter_title;
 
         let entries = match std::fs::read_dir(temp_download_dir).map_err(anyhow::Error::from) {
@@ -975,7 +975,7 @@ impl DownloadTask {
         &'a self,
         permit: &mut Option<SemaphorePermit<'a>>,
     ) -> ControlFlow<()> {
-        let comic_title = &self.comic.title;
+        let comic_title = &self.comic.name;
         let chapter_title = &self.chapter_info.chapter_title;
 
         tracing::debug!(comic_title, chapter_title, "章节开始排队");
@@ -1038,7 +1038,7 @@ impl DownloadTask {
         permit: &mut Option<SemaphorePermit<'a>>,
         state_receiver: &mut watch::Receiver<DownloadTaskState>,
     ) -> ControlFlow<()> {
-        let comic_title = &self.comic.title;
+        let comic_title = &self.comic.name;
         let chapter_title = &self.chapter_info.chapter_title;
 
         self.emit_download_task_update_event();
@@ -1082,7 +1082,7 @@ impl DownloadTask {
         if let Err(err) = ImageRepo::mark_done(self.app.store(), chapter_id, img_index, bytes) {
             let err_title = format!(
                 "`{} - {}`标记图片`{img_index}`完成失败",
-                self.comic.title, self.chapter_info.chapter_title
+                self.comic.name, self.chapter_info.chapter_title
             );
             let string_chain = err.to_string_chain();
             tracing::error!(err_title, message = string_chain);
@@ -1102,7 +1102,7 @@ impl DownloadTask {
         if let Err(err) = ImageRepo::mark_failed(self.app.store(), chapter_id, img_index, error) {
             let err_title = format!(
                 "`{} - {}`记录图片`{img_index}`失败原因失败",
-                self.comic.title, self.chapter_info.chapter_title
+                self.comic.name, self.chapter_info.chapter_title
             );
             let string_chain = err.to_string_chain();
             tracing::error!(err_title, message = string_chain);
@@ -1130,7 +1130,7 @@ impl DownloadTask {
     }
 
     fn set_state(&self, state: DownloadTaskState) {
-        let comic_title = &self.comic.title;
+        let comic_title = &self.comic.name;
         let chapter_title = &self.chapter_info.chapter_title;
 
         // 先落库再广播：让持久状态成为真相源，内存与事件都是它的投影。
@@ -1262,7 +1262,7 @@ impl DownloadImgTask {
 
     async fn download_img(&self) {
         let url = &self.url;
-        let comic_title = &self.download_task.comic.title;
+        let comic_title = &self.download_task.comic.name;
         let chapter_title = &self.download_task.chapter_info.chapter_title;
         let temp_download_dir = &self.temp_download_dir;
 
@@ -1389,7 +1389,7 @@ impl DownloadImgTask {
         loop {
             match self
                 .app
-                .get_pica_client()
+                .get_jm_client()
                 .get_img_data_and_format(url)
                 .await
             {
@@ -1430,7 +1430,7 @@ impl DownloadImgTask {
         permit: &mut Option<SemaphorePermit<'a>>,
     ) -> ControlFlow<()> {
         let url = &self.url;
-        let comic_title = &self.download_task.comic.title;
+        let comic_title = &self.download_task.comic.name;
         let chapter_title = &self.download_task.chapter_info.chapter_title;
 
         tracing::trace!(comic_title, chapter_title, url, "图片开始排队");
@@ -1474,7 +1474,7 @@ impl DownloadImgTask {
         state_receiver: &mut watch::Receiver<DownloadTaskState>,
     ) -> ControlFlow<()> {
         let url = &self.url;
-        let comic_title = &self.download_task.comic.title;
+        let comic_title = &self.download_task.comic.name;
         let chapter_title = &self.download_task.chapter_info.chapter_title;
 
         let state = *state_receiver.borrow();
@@ -1566,8 +1566,8 @@ impl Comic {
 
             let dir_fmt_params = DirFmtParams {
                 comic_id: self.id.clone(),
-                comic_title: self.title.clone(),
-                author: self.author.clone(),
+                comic_title: self.name.clone(),
+                author: self.author.join(", "),
                 chapter_id: chapter_info.chapter_id.clone(),
                 chapter_title: chapter_info.chapter_title.clone(),
                 order: chapter_info.order,

@@ -4,14 +4,14 @@ use std::{
 };
 
 use anyhow::{anyhow, Context};
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
 use crate::{
     context::AppContext,
     extensions::WalkDirEntryExt,
-    responses::{ChapterRespData, ComicRespData},
+    jm_client::IMAGE_DOMAIN,
+    responses::{GetComicRespData, RelatedListRespData},
     utils,
 };
 
@@ -21,26 +21,30 @@ use super::ChapterInfo;
 #[serde(rename_all = "camelCase")]
 #[allow(clippy::struct_field_names)]
 pub struct Comic {
+    /// jm 的 album id（i64，存为 String 以复用 pica-server 的架构）。
     pub id: String,
-    pub title: String,
-    pub author: String,
-    pub pages_count: i64,
-    pub chapter_infos: Vec<ChapterInfo>,
-    pub chapter_count: i64,
-    pub finished: bool,
-    pub categories: Vec<String>,
-    pub thumb: Image,
-    pub likes_count: i64,
-    pub creator: Creator,
+    pub name: String,
+    pub addtime: String,
     pub description: String,
-    pub chinese_team: String,
+    #[serde(rename = "total_views")]
+    pub total_views: String,
+    pub likes: String,
+    pub chapter_infos: Vec<ChapterInfo>,
+    #[serde(rename = "series_id")]
+    pub series_id: String,
+    #[serde(rename = "comment_total")]
+    pub comment_total: String,
+    pub author: Vec<String>,
     pub tags: Vec<String>,
-    pub updated_at: DateTime<Utc>,
-    pub created_at: String,
-    pub allow_download: bool,
-    pub views_count: i64,
-    pub is_liked: bool,
-    pub comments_count: i64,
+    pub works: Vec<String>,
+    pub actors: Vec<String>,
+    #[serde(rename = "related_list")]
+    pub related_list: Vec<RelatedListRespData>,
+    pub liked: bool,
+    #[serde(rename = "is_favorite")]
+    pub is_favorite: bool,
+    #[serde(rename = "is_aids")]
+    pub is_aids: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_downloaded: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -48,69 +52,60 @@ pub struct Comic {
 }
 
 impl Comic {
-    // TODO: 改名为`from_resp_data`
-    pub fn from(
-        app: &AppContext,
-        comic: ComicRespData,
-        chapters: Vec<ChapterRespData>,
-    ) -> anyhow::Result<Comic> {
-        let chapter_infos = chapters
+    pub fn from_comic_resp_data(app: &AppContext, comic: GetComicRespData) -> anyhow::Result<Comic> {
+        let id_str = comic.id.to_string();
+
+        // jm 的 series 就是章节列表；每章一个 ChapterInfo。
+        let mut chapter_infos: Vec<ChapterInfo> = comic
+            .series
             .into_iter()
-            .map(|chapter| ChapterInfo {
-                chapter_id: chapter.id,
-                chapter_title: chapter.title,
-                order: chapter.order,
-                is_downloaded: None,
-                chapter_download_dir: None,
+            .enumerate()
+            .map(|(index, s)| {
+                #[allow(clippy::cast_possible_wrap)]
+                let order = (index + 1) as i64;
+                let mut chapter_title = format!("第{order}话");
+                if !s.name.is_empty() {
+                    chapter_title.push_str(&format!(" {}", &s.name));
+                }
+                ChapterInfo {
+                    chapter_id: s.id.clone(),
+                    chapter_title,
+                    order,
+                    is_downloaded: None,
+                    chapter_download_dir: None,
+                }
             })
             .collect();
 
-        let thumb = Image {
-            original_name: comic.thumb.original_name,
-            path: comic.thumb.path,
-            file_server: comic.thumb.file_server,
-        };
+        // 没有 series（单章）时，用 album id 作为唯一章节。
+        if chapter_infos.is_empty() {
+            chapter_infos.push(ChapterInfo {
+                chapter_id: id_str.clone(),
+                chapter_title: "第1话".to_owned(),
+                order: 1,
+                is_downloaded: None,
+                chapter_download_dir: None,
+            });
+        }
 
-        let creator = Creator {
-            id: comic.creator.id,
-            gender: comic.creator.gender,
-            name: comic.creator.name,
-            title: comic.creator.title,
-            verified: comic.creator.verified,
-            exp: comic.creator.exp,
-            level: comic.creator.level,
-            characters: comic.creator.characters,
-            avatar: Image {
-                original_name: comic.creator.avatar.original_name,
-                path: comic.creator.avatar.path,
-                file_server: comic.creator.avatar.file_server,
-            },
-            slogan: comic.creator.slogan,
-            role: comic.creator.role,
-            character: comic.creator.character,
-        };
-
-        let mut comic = Self {
-            id: comic.id,
-            title: comic.title,
-            author: comic.author,
-            pages_count: comic.pages_count,
-            chapter_infos,
-            chapter_count: comic.eps_count,
-            finished: comic.finished,
-            categories: comic.categories,
-            thumb,
-            likes_count: comic.likes_count,
-            creator,
+        let mut comic = Comic {
+            id: id_str,
+            name: comic.name,
+            addtime: comic.addtime,
             description: comic.description,
-            chinese_team: comic.chinese_team,
+            total_views: comic.total_views,
+            likes: comic.likes,
+            chapter_infos,
+            series_id: comic.series_id,
+            comment_total: comic.comment_total,
+            author: comic.author,
             tags: comic.tags,
-            updated_at: comic.updated_at,
-            created_at: comic.created_at,
-            allow_download: comic.allow_download,
-            views_count: comic.views_count,
-            is_liked: comic.is_liked,
-            comments_count: comic.comments_count,
+            works: comic.works,
+            actors: comic.actors,
+            related_list: comic.related_list,
+            liked: comic.liked,
+            is_favorite: comic.is_favorite,
+            is_aids: comic.is_aids,
             is_downloaded: None,
             comic_download_dir: None,
         };
@@ -120,11 +115,10 @@ impl Comic {
 
         comic
             .update_fields(&id_to_dir_map)
-            .context(format!("`{}`更新Comic的字段失败", comic.title))?;
+            .context(format!("`{}`更新Comic的字段失败", comic.name))?;
 
         Ok(comic)
     }
-
     pub fn update_fields(
         &mut self,
         id_to_dir_map: &HashMap<String, PathBuf>,
@@ -147,7 +141,6 @@ impl Comic {
             "将`{}`反序列化为Comic失败",
             metadata_path.display()
         ))?;
-        // 来自元数据的章节信息没有`download_dir`和`is_downloaded`字段，需要更新
         let parent = metadata_path
             .parent()
             .context(format!("`{}`没有父目录", metadata_path.display()))?;
@@ -169,10 +162,7 @@ impl Comic {
 
         let comic_download_dir_name = comic_download_dir
             .file_name()
-            .context(format!(
-                "获取`{}`的目录名失败",
-                comic_download_dir.display()
-            ))?
+            .context(format!("获取`{}`的目录名失败", comic_download_dir.display()))?
             .to_string_lossy()
             .to_string();
 
@@ -202,18 +192,18 @@ impl Comic {
         Ok(comic_export_dir)
     }
 
+    /// jm 封面路径：`{comic_download_dir}/cover.jpg`。
     pub fn get_cover_path(&self) -> anyhow::Result<PathBuf> {
         let comic_download_dir = self
             .comic_download_dir
             .as_ref()
             .context("`comic_download_dir`字段为`None`")?;
+        Ok(comic_download_dir.join("cover.jpg"))
+    }
 
-        let path_str = &self.thumb.path;
-        let ext = path_str.rfind('.').map_or("jpg", |i| &path_str[i + 1..]);
-
-        let cover_path = comic_download_dir.join(format!("cover.{ext}"));
-
-        Ok(cover_path)
+    /// jm 封面 URL：`https://{IMAGE_DOMAIN}/media/albums/{id}.jpg`。
+    pub fn get_cover_url(&self) -> String {
+        format!("https://{IMAGE_DOMAIN}/media/albums/{}.jpg", self.id)
     }
 
     fn update_chapter_infos_fields(&mut self) -> anyhow::Result<()> {
@@ -234,10 +224,8 @@ impl Comic {
             }
 
             let metadata_path = entry.path();
-
             let metadata_str = std::fs::read_to_string(metadata_path)
                 .context(format!("读取`{}`失败", metadata_path.display()))?;
-
             let chapter_json: serde_json::Value =
                 serde_json::from_str(&metadata_str).context(format!(
                     "将`{}`反序列化为serde_json::Value失败",
@@ -264,29 +252,28 @@ impl Comic {
         }
         Ok(())
     }
-}
 
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Creator {
-    pub id: String,
-    pub gender: String,
-    pub name: String,
-    pub title: String,
-    pub verified: Option<bool>,
-    pub exp: i64,
-    pub level: i64,
-    pub characters: Vec<String>,
-    pub avatar: Image,
-    pub slogan: String,
-    pub role: String,
-    pub character: String,
-}
+    pub fn save_comic_metadata(&self) -> anyhow::Result<()> {
+        let mut comic = self.clone();
+        comic.is_downloaded = None;
+        comic.comic_download_dir = None;
+        for chapter in &mut comic.chapter_infos {
+            chapter.is_downloaded = None;
+            chapter.chapter_download_dir = None;
+        }
 
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Image {
-    pub original_name: String,
-    pub path: String,
-    pub file_server: String,
+        let comic_download_dir = self
+            .comic_download_dir
+            .as_ref()
+            .context("`comic_download_dir`字段为`None`")?;
+        let metadata_path = comic_download_dir.join("元数据.json");
+
+        std::fs::create_dir_all(comic_download_dir)
+            .context(format!("创建目录`{}`失败", comic_download_dir.display()))?;
+        let comic_json =
+            serde_json::to_string_pretty(&comic).context("将Comic序列化为json失败")?;
+        std::fs::write(&metadata_path, comic_json)
+            .context(format!("写入文件`{}`失败", metadata_path.display()))?;
+        Ok(())
+    }
 }
