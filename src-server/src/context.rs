@@ -13,7 +13,7 @@ use parking_lot::RwLock;
 use crate::config::Config;
 use crate::download_manager::DownloadManager;
 use crate::event_bus::EventBus;
-use crate::pica_client::PicaClient;
+use crate::jm_client::JmClient;
 use crate::store::Store;
 
 /// 运行期路径。全部来自环境变量，Docker 里挂一个卷到 `/data` 即可。
@@ -25,7 +25,7 @@ pub struct Paths {
 
 impl Paths {
     pub fn from_env() -> anyhow::Result<Self> {
-        let data_dir = std::env::var("PICA_DATA_DIR")
+        let data_dir = std::env::var("JM_DATA_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("./data"));
         std::fs::create_dir_all(&data_dir)
@@ -43,7 +43,7 @@ impl Paths {
 
     /// 下载任务持久化数据库。与青龙的 `bica_comics.db` 完全独立。
     pub fn db_path(&self) -> PathBuf {
-        self.data_dir.join("pica_server.db")
+        self.data_dir.join("jm_server.db")
     }
 }
 
@@ -52,7 +52,7 @@ impl Paths {
 pub struct AppContext {
     paths: Paths,
     config: Arc<RwLock<Config>>,
-    pica_client: Arc<RwLock<Option<PicaClient>>>,
+    jm_client: Arc<RwLock<Option<JmClient>>>,
     download_manager: Arc<RwLock<Option<DownloadManager>>>,
     /// 任务持久化。构造阶段就打开——它没有循环依赖，不像
     /// `PicaClient` / `DownloadManager` 那样需要两段式构造。
@@ -74,7 +74,7 @@ impl AppContext {
         Ok(Self {
             paths,
             config: Arc::new(RwLock::new(config)),
-            pica_client: Arc::new(RwLock::new(None)),
+            jm_client: Arc::new(RwLock::new(None)),
             download_manager: Arc::new(RwLock::new(None)),
             store,
             events: EventBus::new(),
@@ -83,8 +83,8 @@ impl AppContext {
 
     /// 第二阶段构造：创建 `PicaClient` 与 `DownloadManager` 并注入。
     pub fn init_runtime(&self) -> anyhow::Result<()> {
-        let client = PicaClient::new(self.clone());
-        *self.pica_client.write() = Some(client);
+        let client = JmClient::new(self.clone());
+        *self.jm_client.write() = Some(client);
 
         let manager = DownloadManager::new(self.clone());
         *self.download_manager.write() = Some(manager);
@@ -121,11 +121,11 @@ impl AppContext {
     }
 
     /// 取 `PicaClient`。初始化后必然存在。
-    pub fn pica_client(&self) -> PicaClient {
-        self.pica_client
+    pub fn jm_client(&self) -> JmClient {
+        self.jm_client
             .read()
             .clone()
-            .expect("PicaClient 尚未初始化")
+            .expect("JmClient 尚未初始化")
     }
 
     /// 取 `DownloadManager`。初始化后必然存在。
@@ -137,8 +137,8 @@ impl AppContext {
     }
 
     /// 配置变更后重建 HTTP 客户端（代理/API 地址变了需要重建）。
-    pub fn reload_pica_client(&self) {
-        self.pica_client().reload_client();
+    pub fn reload_jm_client(&self) {
+        self.jm_client().reload_client();
     }
 
     /// 配置变更后应用新的下载并发度（D8 的修复）。

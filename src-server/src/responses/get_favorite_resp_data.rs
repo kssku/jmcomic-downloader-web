@@ -1,26 +1,40 @@
-﻿use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
-use super::{string_to_i64, ImageRespData, Pagination};
+use super::{CategoryRespData, CategorySubRespData};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetFavoriteRespData {
-    pub comics: Pagination<ComicInFavoriteRespData>,
+    pub list: Vec<ComicInFavoriteRespData>,
+    #[serde(rename = "folder_list")]
+    pub folder_list: Vec<FavoriteFolderRespData>,
+    pub total: String,
+    pub count: i64,
 }
 
-#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ComicInFavoriteRespData {
-    #[serde(rename = "_id")]
     pub id: String,
-    pub title: String,
-    #[serde(default)]
     pub author: String,
-    pub pages_count: i64,
-    pub eps_count: i64,
-    pub finished: bool,
-    pub categories: Vec<String>,
-    pub thumb: ImageRespData,
-    #[serde(deserialize_with = "string_to_i64")]
-    pub likes_count: i64,
+    pub description: Option<String>,
+    pub name: String,
+    #[serde(rename = "latest_ep")]
+    pub latest_ep: Option<String>,
+    #[serde(rename = "latest_ep_aid")]
+    pub latest_ep_aid: Option<String>,
+    pub image: String,
+    pub category: CategoryRespData,
+    #[serde(rename = "category_sub")]
+    pub category_sub: CategorySubRespData,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FavoriteFolderRespData {
+    #[serde(rename = "FID")]
+    pub fid: String,
+    #[serde(rename = "UID")]
+    pub uid: String,
+    pub name: String,
 }

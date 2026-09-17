@@ -11,6 +11,11 @@ use crate::{
     types::Comic,
 };
 
+/// 计算 MD5 并返回十六进制字符串（jm 签名/数据解密用）。
+pub fn md5_hex(data: &str) -> String {
+    format!("{:x}", md5::compute(data))
+}
+
 pub fn filename_filter(s: &str) -> String {
     s.chars()
         .map(|c| match c {

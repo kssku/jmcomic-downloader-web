@@ -6,7 +6,7 @@
 use parking_lot::RwLock;
 
 use crate::{
-    config::Config, context::AppContext, download_manager::DownloadManager, pica_client::PicaClient,
+    config::{Config, ProxyMode}, context::AppContext, download_manager::DownloadManager, jm_client::JmClient,
     types::ChapterInfo,
 };
 
@@ -102,7 +102,7 @@ impl WalkDirEntryExt for walkdir::DirEntry {
 /// 因为 `AppContext` 内部已用 `Arc` 管理生命周期，不需要 `State` 包装。
 pub trait AppContextExt {
     fn get_config(&self) -> &std::sync::Arc<RwLock<Config>>;
-    fn get_pica_client(&self) -> PicaClient;
+    fn get_jm_client(&self) -> JmClient;
     fn get_download_manager(&self) -> DownloadManager;
 }
 
@@ -111,11 +111,78 @@ impl AppContextExt for AppContext {
         self.config()
     }
 
-    fn get_pica_client(&self) -> PicaClient {
-        self.pica_client()
+    fn get_jm_client(&self) -> JmClient {
+        self.jm_client()
     }
 
     fn get_download_manager(&self) -> DownloadManager {
         self.download_manager()
     }
+}
+
+/// `reqwest::ClientBuilder` 的代理设置扩展。
+///
+/// 三种模式：
+/// - `System`：读环境变量（`HTTPS_PROXY`/`ALL_PROXY` 等），NAS + Docker 的默认；
+/// - `NoProxy`：强制直连；
+/// - `Custom`：用配置里的 host/port。
+pub trait ClientBuilderExt {
+    fn set_proxy(self, app: &AppContext, client_name: &str) -> Self;
+}
+
+impl ClientBuilderExt for reqwest::ClientBuilder {
+    fn set_proxy(self, app: &AppContext, client_name: &str) -> reqwest::ClientBuilder {
+        let proxy_mode = app.get_config().read().proxy_mode;
+        match proxy_mode {
+            ProxyMode::System => match system_proxy_url() {
+                Some(proxy_url) => {
+                    match reqwest::Proxy::all(&proxy_url).map_err(anyhow::Error::from) {
+                        Ok(proxy) => {
+                            tracing::info!(client_name, proxy_url, "使用环境变量代理");
+                            self.proxy(proxy)
+                        }
+                        Err(err) => {
+                            let err_title =
+                                format!("{client_name}将`{proxy_url}`设为代理失败，将直连");
+                            let string_chain = err.to_string_chain();
+                            tracing::error!(err_title, message = string_chain);
+                            self.no_proxy()
+                        }
+                    }
+                }
+                None => self.no_proxy(),
+            },
+            ProxyMode::NoProxy => self.no_proxy(),
+            ProxyMode::Custom => {
+                let config = app.get_config().read();
+                let proxy_host = &config.proxy_host;
+                let proxy_port = &config.proxy_port;
+                let proxy_url = format!("http://{proxy_host}:{proxy_port}");
+                match reqwest::Proxy::all(&proxy_url).map_err(anyhow::Error::from) {
+                    Ok(proxy) => self.proxy(proxy),
+                    Err(err) => {
+                        let err_title =
+                            format!("{client_name}将`{proxy_url}`设为代理失败，将直连");
+                        let string_chain = err.to_string_chain();
+                        tracing::error!(err_title, message = string_chain);
+                        self.no_proxy()
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 从环境变量读代理地址。优先 `HTTPS_PROXY`（大写），再 `https_proxy`，
+/// 再 `ALL_PROXY` / `all_proxy`。
+fn system_proxy_url() -> Option<String> {
+    for var in ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"] {
+        if let Ok(value) = std::env::var(var) {
+            let value = value.trim().to_string();
+            if !value.is_empty() {
+                return Some(value);
+            }
+        }
+    }
+    None
 }

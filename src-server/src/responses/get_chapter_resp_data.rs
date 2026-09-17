@@ -1,21 +1,19 @@
-﻿use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use super::Pagination;
+use super::SeriesRespData;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetChapterRespData {
-    pub eps: Pagination<ChapterRespData>,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChapterRespData {
-    #[serde(rename = "_id")]
-    pub id: String,
-    pub title: String,
-    pub order: i64,
-    #[serde(rename = "updated_at")]
-    pub updated_at: DateTime<Utc>,
+    pub id: i64,
+    pub series: Vec<SeriesRespData>,
+    pub tags: String,
+    pub name: String,
+    pub images: Vec<String>,
+    pub addtime: String,
+    #[serde(rename = "series_id")]
+    pub series_id: String,
+    #[serde(rename = "is_favorite")]
+    pub is_favorite: bool,
+    pub liked: bool,
 }
