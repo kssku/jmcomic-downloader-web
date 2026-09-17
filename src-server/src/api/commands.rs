@@ -14,7 +14,7 @@ use crate::config::Config;
 use crate::context::AppContext;
 use crate::errors::{CommandError, CommandResult};
 use crate::extensions::AppContextExt;
-use crate::responses::UserProfileDetailRespData;
+use crate::responses::{GetUserProfileRespData, SearchResp};
 use crate::store::{DbImage, DbTask, DbTaskState, ImageRepo, TaskRepo, TaskStats};
 use crate::types::{
     ChapterInfo, Comic, ComicInSearch,
@@ -77,27 +77,22 @@ pub fn save_config(app: &AppContext, config: Config) -> CommandResult<()> {
 // 登录与用户信息
 // ════════════════════════════════════════════════════════════════
 
-pub async fn login(app: &AppContext, email: String, password: String) -> CommandResult<String> {
-    let pica_client = app.get_jm_client();
+pub async fn login(app: &AppContext, username: String, password: String) -> CommandResult<String> {
+    let jm_client = app.get_jm_client();
 
-    let token = pica_client
-        .login(&email, &password)
+    // jm 的登录态保存在 `JmClient` 内部的 cookie jar 里，不再返回 token。
+    // 为兼容前端「登录后拿一个字符串」的既有契约，这里返回用户名。
+    let user_profile = jm_client
+        .login(&username, &password)
         .await
         .map_err(|err| CommandError::from("登录失败", err))?;
 
-    // 必须把 token 落盘。之前这里只把 token 返回给调用方，
-    // 服务端自身的 config.token 仍是空串，导致登录「成功」之后
-    // 所有需要鉴权的请求依然读不到 token，Pica 一律返回 401。
-    let mut config = app.config_read();
-    config.token = token.clone();
-    app.save_config(&config)
-        .map_err(|err| CommandError::from("保存登录凭证失败", err))?;
-    tracing::info!("已保存登录凭证");
+    tracing::info!(username = %user_profile.username, "jm 登录成功");
 
-    Ok(token)
+    Ok(user_profile.username)
 }
 
-pub async fn get_user_profile(app: &AppContext) -> CommandResult<UserProfileDetailRespData> {
+pub async fn get_user_profile(app: &AppContext) -> CommandResult<GetUserProfileRespData> {
     let pica_client = app.get_jm_client();
 
     let user_profile = pica_client
@@ -117,17 +112,42 @@ pub async fn search_comic(
     keyword: String,
     sort: SearchSort,
     page: i32,
-    categories: Vec<String>,
+    _categories: Vec<String>,
 ) -> CommandResult<SearchResult> {
-    let pica_client = app.get_jm_client();
+    let jm_client = app.get_jm_client();
 
-    let search_resp_data = pica_client
-        .search_comic(&keyword, sort, page, categories)
+    let search_resp = jm_client
+        .search(&keyword, i64::from(page), sort)
         .await
         .map_err(|err| CommandError::from("搜索漫画失败", err))?;
 
-    let search_result = SearchResult::from_resp_data(app, search_resp_data)
-        .map_err(|err| CommandError::from("搜索漫画失败", err))?;
+    let search_result = match search_resp {
+        SearchResp::SearchRespData(data) => SearchResult::from_resp_data(app, data)
+            .map_err(|err| CommandError::from("搜索漫画失败", err))?,
+        SearchResp::ComicRespData(comic) => {
+            // jm 搜索命中单个漫画时会返回 redirect，这里把它包装成一条搜索结果。
+            let comic = *comic;
+            let id_to_dir_map = crate::utils::create_id_to_dir_map(app)
+                .map_err(|err| CommandError::from("搜索漫画失败", err))?;
+            let id = comic.id.to_string();
+            let item = crate::types::ComicInSearch {
+                id: id.clone(),
+                author: comic.author.join(", "),
+                name: comic.name.clone(),
+                image: String::new(),
+                liked: comic.liked,
+                is_favorite: comic.is_favorite,
+                update_at: 0,
+                is_downloaded: id_to_dir_map.contains_key(&id),
+                comic_download_dir: id_to_dir_map.get(&id).cloned().unwrap_or_default(),
+            };
+            SearchResult(crate::types::SearchList {
+                search_query: keyword.clone(),
+                total: 1,
+                docs: vec![item],
+            })
+        }
+    };
 
     Ok(search_result)
 }

@@ -17,7 +17,7 @@ use crate::config::Config;
 use crate::context::AppContext;
 use crate::errors::CommandError;
 use crate::events::DownloadTaskEvent;
-use crate::responses::UserProfileDetailRespData;
+use crate::responses::GetUserProfileRespData;
 use crate::types::{Comic, ComicInSearch, SearchResult, SearchSort};
 
 /// 路由共享状态。
@@ -160,7 +160,7 @@ async fn login(
 
 async fn user_profile(
     State(state): State<AppState>,
-) -> Result<Json<UserProfileDetailRespData>, ApiError> {
+) -> Result<Json<GetUserProfileRespData>, ApiError> {
     let profile = commands::get_user_profile(&state.app)
         .await
         .map_err(ApiError::from)?;
@@ -170,7 +170,7 @@ async fn user_profile(
 /// 前端走的是 `POST /api/user/profile` + `{}`。
 async fn post_user_profile(
     State(state): State<AppState>,
-) -> Result<Json<UserProfileDetailRespData>, ApiError> {
+) -> Result<Json<GetUserProfileRespData>, ApiError> {
     user_profile(State(state)).await
 }
 

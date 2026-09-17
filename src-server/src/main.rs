@@ -18,9 +18,9 @@ use std::path::PathBuf;
 
 use anyhow::Context as _;
 use axum::Router;
-use pica_server::api::routes;
-use pica_server::auth::AuthConfig;
-use pica_server::context::{AppContext, Paths};
+use jmcomic_server::api::routes;
+use jmcomic_server::auth::AuthConfig;
+use jmcomic_server::context::{AppContext, Paths};
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 
@@ -30,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
     let app = AppContext::new(paths).context("加载配置失败")?;
 
     // 日志系统需要 AppContext 才能拿到日志目录，因此放在上下文之后。
-    pica_server::logger::init(&app).context("初始化日志失败")?;
+    jmcomic_server::logger::init(&app).context("初始化日志失败")?;
 
     app.init_runtime().context("初始化运行期组件失败")?;
 

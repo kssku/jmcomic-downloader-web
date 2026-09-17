@@ -16,6 +16,7 @@ use tokio::task::JoinSet;
 use tokio::time::sleep;
 
 use crate::context::AppContext;
+use crate::jm_client::IMAGE_DOMAIN;
 use crate::event_bus::topics;
 use crate::events::DownloadTaskEvent;
 use crate::extensions::{AnyhowErrorToStringChain, AppContextExt};
@@ -399,7 +400,7 @@ impl DownloadManager {
 
         let comic = Comic {
             id: db_task.comic_id.clone(),
-            title: db_task.comic_title.clone(),
+            name: db_task.comic_title.clone(),
             ..Default::default()
         };
 
@@ -549,8 +550,8 @@ impl DownloadTask {
         }
 
         // 获取图片链接
-        let img_urls = match self.get_img_urls().await {
-            Ok(img_urls) => img_urls,
+        let img_urls_with_block = match self.get_img_urls().await {
+            Ok(v) => v,
             Err(err) => {
                 let err_title = format!("`{comic_title} - {chapter_title}`获取图片链接失败");
                 let string_chain = err.to_string_chain();
@@ -560,21 +561,27 @@ impl DownloadTask {
                 return;
             }
         };
-        // `img_urls` 为空说明 Pica 对该章节返回了 0 张图片（`docs` 为空数组）。
-        // 此时若继续往下走，`0 == 0` 会让「下载完整性」检查通过，从而把一个
-        // 什么都没下载的章节标记为「下载成功」。这里直接判定为失败。
-        if img_urls.is_empty() {
+        if img_urls_with_block.is_empty() {
             let err_title = format!("`{comic_title} - {chapter_title}`没有可下载的图片");
-            let err_msg = "Pica 接口返回的图片列表为空，该章节可能已下架或需要更高权限";
+            let err_msg = "jm 接口返回的图片列表为空，该章节可能已下架或需要更高权限";
             tracing::error!(err_title, message = err_msg);
 
             self.set_failed(&err_title, err_msg);
             return;
         }
 
-        // 登记图片清单。`register_batch` 只对**新增**的图片插入 `pending`，
-        // 已存在的行保留原状态——这就是断点续传的基础：重跑章节时，
-        // 上一轮已经 `done` 的图片不会被重置。
+        // 把还原块数编码进 url 的 fragment（`#block=N`），随清单一起落库，
+        // 这样断点续传后仍能拿到每张图各自的 block_num，无需额外建列。
+
+        let img_urls: Vec<String> = img_urls_with_block
+            .iter()
+            .map(|(url, block_num)| format!("{url}#block={block_num}"))
+            .collect();
+
+        // 记录总共需要下载的图片数量
+        #[allow(clippy::cast_possible_truncation)]
+        let total_img_count = img_urls.len() as u32;
+
         let chapter_id = &self.chapter_info.chapter_id;
         if let Err(err) = ImageRepo::register_batch(self.app.store(), chapter_id, &img_urls) {
             let err_title = format!("`{comic_title} - {chapter_title}`登记图片清单失败");
@@ -585,9 +592,6 @@ impl DownloadTask {
             return;
         }
 
-        // 记录总共需要下载的图片数量
-        #[allow(clippy::cast_possible_truncation)]
-        let total_img_count = img_urls.len() as u32;
         self.total_img_count
             .store(total_img_count, Ordering::Relaxed);
 
@@ -707,24 +711,8 @@ impl DownloadTask {
     async fn download_cover(&self) -> anyhow::Result<()> {
         let comic = &self.comic;
         let cover_path = comic.get_cover_path().context("获取封面路径失败")?;
-        // if cover_path.exists() {
-        //     return Ok(());
-        // }
 
-        let parts: Vec<&str> = comic.thumb.path.split('/').collect();
-        if parts.len() < 3 {
-            return Err(anyhow!(
-                "`comic.thumb.path`出现了意料之外的格式: `{}`",
-                comic.thumb.path
-            ));
-        }
-
-        let file_server = &comic.thumb.file_server;
-        let service = parts[0];
-        let signature = parts[1];
-        let filename = parts[parts.len() - 1];
-        let url = format!("{file_server}/static/{service}/{signature}/{filename}");
-
+        let url = comic.get_cover_url();
         let (img_data, _format) = self
             .app
             .get_jm_client()
@@ -780,61 +768,49 @@ impl DownloadTask {
         Some(temp_download_dir)
     }
 
-    async fn get_img_urls(&self) -> anyhow::Result<Vec<String>> {
+    async fn get_img_urls(&self) -> anyhow::Result<Vec<(String, u32)>> {
         let comic_title = &self.comic.name;
         let chapter_title = &self.chapter_info.chapter_title;
-        let comic_id = &self.comic.id;
-        let chapter_order = self.chapter_info.order;
+        let chapter_id = &self.chapter_info.chapter_id;
 
-        let pica_client = self.app.get_jm_client();
+        let jm_client = self.app.get_jm_client();
 
-        let first_page = pica_client
-            .get_chapter_img(comic_id, chapter_order, 1)
-            .await
-            .context("获取第`1`页图片链接失败")?;
+        // jm 模型：一次性拿到本章所有图片文件名 + scramble_id，
+        // 每张图的还原块数在本地用 `calculate_block_num` 算出。
+        let chapter_id_i64 = chapter_id
+            .parse::<i64>()
+            .context(format!("章节id `{chapter_id}` 不是合法的 i64"))?;
 
-        let total_pages = first_page.pages;
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let mut page_imgs_pairs = Vec::with_capacity(total_pages as usize);
-        page_imgs_pairs.push((1, first_page.docs));
+        let (scramble_id, chapter_resp_data) = tokio::try_join!(
+            jm_client.get_scramble_id(chapter_id_i64),
+            jm_client.get_chapter(chapter_id_i64),
+        )?;
 
-        let mut join_set = JoinSet::new();
-        for page in 2..=total_pages {
-            let pica_client = pica_client.clone();
-            let comic_id = comic_id.clone();
-
-            join_set.spawn(async move {
-                let img_page = pica_client
-                    .get_chapter_img(&comic_id, chapter_order, page)
-                    .await
-                    .context(format!("获取第`{page}`页图片链接失败"))?;
-
-                Ok::<_, anyhow::Error>((page, img_page.docs))
-            });
-        }
-
-        // 逐个处理完成的任务，如果有任务失败，则返回None
-        while let Some(join_result) = join_set.join_next().await {
-            match join_result {
-                Ok(Ok(pair)) => {
-                    page_imgs_pairs.push(pair);
-                }
-                Ok(Err(err)) => return Err(err),
-                Err(err) => return Err(anyhow::Error::from(err)),
-            }
-        }
-
-        page_imgs_pairs.sort_by_key(|(page, _)| *page);
-        let img_urls: Vec<String> = page_imgs_pairs
+        let urls_with_block_num: Vec<(String, u32)> = chapter_resp_data
+            .images
             .into_iter()
-            .flat_map(|(_, imgs)| imgs)
-            .map(|img| (img.media.file_server, img.media.path))
-            .map(|(file_server, path)| format!("{file_server}/static/{path}"))
+            .filter_map(|filename| {
+                let file_path = Path::new(&filename);
+                let ext = file_path.extension()?.to_str()?.to_lowercase();
+                let url = format!(
+                    "https://{IMAGE_DOMAIN}/media/photos/{chapter_id}/{filename}"
+                );
+                if ext == "gif" {
+                    return Some((url, 0));
+                } else if ext != "webp" {
+                    return None;
+                }
+
+                let filename_without_ext = file_path.file_stem()?.to_str()?;
+                let block_num =
+                    calculate_block_num(scramble_id, chapter_id_i64, filename_without_ext);
+                Some((url, block_num))
+            })
             .collect();
 
         tracing::trace!(comic_title, chapter_title, "获取图片链接成功");
 
-        Ok(img_urls)
+        Ok(urls_with_block_num)
     }
 
     fn rename_temp_download_dir(&self, temp_download_dir: &PathBuf) -> anyhow::Result<()> {
@@ -1261,7 +1237,9 @@ impl DownloadImgTask {
     }
 
     async fn download_img(&self) {
-        let url = &self.url;
+        // url 形如 `...jpg#block=N`，fragment 只用于携带还原块数。
+        let (clean_url, block_num) = split_url_block(&self.url);
+        let url = &clean_url;
         let comic_title = &self.download_task.comic.name;
         let chapter_title = &self.download_task.chapter_info.chapter_title;
         let temp_download_dir = &self.temp_download_dir;
@@ -1341,7 +1319,7 @@ impl DownloadImgTask {
         };
 
         // 保存图片
-        if let Err(err) = save_img(&save_path, target_format, img_data, img_format).await {
+        if let Err(err) = save_img(&save_path, target_format, block_num, img_data, img_format).await {
             let err_title = format!("保存图片`{}`失败", save_path.display());
             let string_chain = err.to_string_chain();
             tracing::error!(err_title, message = string_chain);
@@ -1498,14 +1476,64 @@ impl DownloadImgTask {
 // ════════════════════════════════════════════════
 // 修改点：save_img 中添加对 BMP 的支持
 // ════════════════════════════════════════════════
+/// 把 `url#block=N` 拆成 `(url, N)`；没有 fragment 时 block_num 为 0。
+fn split_url_block(raw: &str) -> (String, u32) {
+    match raw.split_once("#block=") {
+        Some((url, n)) => (url.to_string(), n.parse::<u32>().unwrap_or(0)),
+        None => (raw.to_string(), 0),
+    }
+}
+
+/// jm 图片还原块数。参考桌面版 `jmcomic-downloader` 的实现。
+fn calculate_block_num(scramble_id: i64, id: i64, filename: &str) -> u32 {
+    if id < scramble_id {
+        0
+    } else if id < 268_850 {
+        10
+    } else {
+        let x = if id < 421_926 { 10 } else { 8 };
+        let s = format!("{id}{filename}");
+        let s = crate::utils::md5_hex(&s);
+        let mut block_num = s.chars().last().unwrap() as u32;
+        block_num %= x;
+        block_num * 2 + 2
+    }
+}
+
+/// 按 `block_num` 把 jm 的乱序图还原成正常顺序。
+fn stitch_img(src_img: &mut image::RgbImage, block_num: u32) -> image::RgbImage {
+    let (width, height) = src_img.dimensions();
+    let mut stitched_img = image::ImageBuffer::new(width, height);
+    let remainder_height = height % block_num;
+    for i in 0..block_num {
+        let mut block_height = height / block_num;
+        let src_img_y_start = height - (block_height * (i + 1)) - remainder_height;
+        let mut dst_img_y_start = block_height * i;
+        if i == 0 {
+            block_height += remainder_height;
+        } else {
+            dst_img_y_start += remainder_height;
+        }
+        for y in 0..block_height {
+            let src_y = src_img_y_start + y;
+            let dst_y = dst_img_y_start + y;
+            for x in 0..width {
+                stitched_img.put_pixel(x, dst_y, *src_img.get_pixel(x, src_y));
+            }
+        }
+    }
+    stitched_img
+}
+
 async fn save_img(
     save_path: &Path,
     target_format: ImageFormat,
+    block_num: u32,
     src_img_data: Bytes,
     src_format: ImageFormat,
 ) -> anyhow::Result<()> {
-    if target_format == src_format {
-        // 如果target_format与src_format匹配，则直接保存
+    // gif 不参与还原；且目标格式与源格式一致、无需还原时直接落盘。
+    if block_num == 0 && target_format == src_format {
         std::fs::write(save_path, &src_img_data)
             .context(format!("将图片数据写入`{}`失败", save_path.display()))?;
         return Ok(());
@@ -1514,8 +1542,16 @@ async fn save_img(
     let save_path = save_path.to_path_buf();
     // 图像处理的闭包
     let process_img = move || -> anyhow::Result<()> {
-        // 如果target_format与src_format不匹配，则需要转换格式
-        let img = image::load_from_memory(&src_img_data).context("加载图片数据失败")?;
+        let mut src_img = image::load_from_memory(&src_img_data)
+            .context("加载图片数据失败")?
+            .to_rgb8();
+
+        // 按 jm 的乱序规则还原图片
+        let dst_img = if block_num == 0 {
+            src_img
+        } else {
+            stitch_img(&mut src_img, block_num)
+        };
 
         let mut converted_data = Vec::new();
 
@@ -1527,7 +1563,8 @@ async fn save_img(
         {
             return Err(anyhow!("不支持的图片格式: {:?}", target_format));
         }
-        img.write_to(&mut Cursor::new(&mut converted_data), target_format)
+        dst_img
+            .write_to(&mut Cursor::new(&mut converted_data), target_format)
             .context(format!("将`{src_format:?}`转换为`{target_format:?}`失败"))?;
 
         std::fs::write(&save_path, &converted_data)

@@ -1,13 +1,11 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, path::PathBuf};
 
 use anyhow::Context;
-use parking_lot::Mutex;
-use tokio::task::JoinSet;
 use walkdir::WalkDir;
 
 use crate::{
     context::AppContext,
-    extensions::{AnyhowErrorToStringChain, AppContextExt, WalkDirEntryExt},
+    extensions::{AppContextExt, WalkDirEntryExt},
     types::Comic,
 };
 
@@ -19,7 +17,7 @@ pub fn md5_hex(data: &str) -> String {
 pub fn filename_filter(s: &str) -> String {
     s.chars()
         .map(|c| match c {
-            '\\' | '/' => ' ',
+            '\\' | '/' | '\n' => ' ',
             ':' => '：',
             '*' => '⭐',
             '?' => '？',
@@ -31,64 +29,19 @@ pub fn filename_filter(s: &str) -> String {
         })
         .collect::<String>()
         .trim()
+        .trim_end_matches('.')
+        .trim()
         .to_string()
 }
 
 pub async fn get_comic(app: &AppContext, comic_id: &str) -> anyhow::Result<Comic> {
-    // 获取漫画详情和章节的第一页
-    let pica_client = app.get_jm_client();
-
-    let (comic, first_page) = tokio::try_join!(
-        async {
-            pica_client
-                .get_comic(comic_id)
-                .await
-                .context("获取漫画详情失败")
-        },
-        async {
-            pica_client
-                .get_chapter(comic_id, 1)
-                .await
-                .context("获取漫画章节的第1页失败")
-        },
-    )?;
-
-    // 准备根据章节的第一页获取所有章节
-    // 先把第一页的章节放进去
-    // TODO: 在join_set里返回chapter_page.docs，然后在.join_next()里处理，这样就不用锁了
-    let chapters = Arc::new(Mutex::new(vec![]));
-    chapters.lock().extend(first_page.docs);
-    // 获取剩下的章节
-    let total_pages = first_page.pages;
-    let mut join_set = JoinSet::new();
-    for page in 2..=total_pages {
-        let pica_client = pica_client.clone();
-        let chapters = chapters.clone();
-        let comic_id = comic_id.to_string();
-        // 创建获取章节的任务
-        join_set.spawn(async move {
-            let chapter_page = match pica_client.get_chapter(&comic_id, page).await {
-                Ok(chapter_page) => chapter_page,
-                Err(err) => {
-                    let err_title = format!("获取ID为`{comic_id}`的漫画章节的第{page}页失败");
-                    let string_chain = err.to_string_chain();
-                    tracing::error!(err_title, message = string_chain);
-                    return;
-                }
-            };
-            chapters.lock().extend(chapter_page.docs);
-        });
-    }
-    // 等待所有章节获取完毕
-    join_set.join_all().await;
-    // 按章节顺序排序
-    let chapters = {
-        let mut chapters = chapters.lock();
-        chapters.sort_by_key(|chapter| chapter.order);
-        std::mem::take(&mut *chapters)
-    };
-    let comic = Comic::from(app, comic, chapters)?;
-
+    let aid: i64 = comic_id.parse().context("comic_id 无法解析为 i64")?;
+    let jm_client = app.get_jm_client();
+    let comic_resp_data = jm_client
+        .get_comic(aid)
+        .await
+        .context("获取漫画详情失败")?;
+    let comic = Comic::from_comic_resp_data(app, comic_resp_data)?;
     Ok(comic)
 }
 
@@ -110,9 +63,8 @@ pub fn create_id_to_dir_map(app: &AppContext) -> anyhow::Result<HashMap<String, 
 
         let metadata_str =
             std::fs::read_to_string(path).context(format!("读取`{}`失败", path.display()))?;
-        let comic_json: serde_json::Value = serde_json::from_str(&metadata_str).context(
-            format!("将`{}`反序列化为serde_json::Value失败", path.display()),
-        )?;
+        let comic_json: serde_json::Value = serde_json::from_str(&metadata_str)
+            .context(format!("将`{}`反序列化为serde_json::Value失败", path.display()))?;
         let id = comic_json
             .get("id")
             .and_then(|id| id.as_str())

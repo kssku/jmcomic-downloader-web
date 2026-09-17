@@ -18,10 +18,10 @@ use reqwest_retry::{Jitter, RetryTransientMiddleware};
 use serde_json::json;
 
 use crate::context::AppContext;
-use crate::extensions::{AnyhowErrorToStringChain, AppContextExt, ClientBuilderExt};
+use crate::extensions::{AppContextExt, ClientBuilderExt};
 use crate::responses::{
     GetChapterRespData, GetComicRespData, GetFavoriteRespData, GetUserProfileRespData,
-    JmResp, RedirectRespData, SearchResp, SearchRespData, ToggleFavoriteRespData,
+    JmResp, RedirectRespData, SearchResp, SearchRespData,
 };
 use crate::types::{FavoriteSort, SearchSort};
 use crate::utils;
@@ -103,6 +103,11 @@ impl JmClient {
 
     fn api_domain(&self) -> String {
         self.app.get_config().read().api_base_url.clone()
+    }
+
+    /// 当前使用的 API 域名（供前端/日志展示）。
+    pub fn base_url(&self) -> String {
+        self.api_domain()
     }
 
     async fn jm_request(

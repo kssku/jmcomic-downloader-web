@@ -1,4 +1,4 @@
-use std::{
+﻿use std::{
     collections::HashMap,
     ops::{Deref, DerefMut},
     path::PathBuf,
@@ -9,16 +9,24 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     context::AppContext,
-    responses::{ComicInSearchRespData, ImageRespData, Pagination, SearchRespData},
+    responses::{ComicInSearchRespData, SearchRespData},
     utils,
 };
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SearchResult(pub Pagination<ComicInSearch>);
+pub struct SearchResult(pub SearchList<ComicInSearch>);
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchList<T> {
+    pub search_query: String,
+    pub total: i64,
+    pub docs: Vec<T>,
+}
 
 impl Deref for SearchResult {
-    type Target = Pagination<ComicInSearch>;
+    type Target = SearchList<ComicInSearch>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -40,20 +48,16 @@ impl SearchResult {
             utils::create_id_to_dir_map(app).context("创建漫画ID到下载目录映射失败")?;
 
         let mut docs = Vec::new();
-        for comic in resp_data.comics.docs {
+        for comic in resp_data.content {
             let comic = ComicInSearch::from_resp_data(comic, &id_to_dir_map);
             docs.push(comic);
         }
 
-        let pagination = Pagination {
-            total: resp_data.comics.total,
-            limit: resp_data.comics.limit,
-            page: resp_data.comics.page,
-            pages: resp_data.comics.pages,
+        let result = SearchResult(SearchList {
+            search_query: resp_data.search_query,
+            total: resp_data.total,
             docs,
-        };
-
-        let result = SearchResult(pagination);
+        });
 
         Ok(result)
     }
@@ -64,18 +68,11 @@ impl SearchResult {
 pub struct ComicInSearch {
     pub id: String,
     pub author: String,
-    pub categories: Vec<String>,
-    pub chinese_team: String,
-    pub created_at: String,
-    pub description: String,
-    pub finished: bool,
-    pub likes_count: i64,
-    pub tags: Vec<String>,
-    pub thumb: ImageRespData,
-    pub title: String,
-    pub total_likes: Option<i64>,
-    pub total_views: Option<i64>,
-    pub updated_at: String,
+    pub name: String,
+    pub image: String,
+    pub liked: bool,
+    pub is_favorite: bool,
+    pub update_at: i64,
     pub is_downloaded: bool,
     pub comic_download_dir: PathBuf,
 }
@@ -88,18 +85,11 @@ impl ComicInSearch {
         let mut comic = ComicInSearch {
             id: resp_data.id,
             author: resp_data.author,
-            categories: resp_data.categories,
-            chinese_team: resp_data.chinese_team,
-            created_at: resp_data.created_at,
-            description: resp_data.description,
-            finished: resp_data.finished,
-            likes_count: resp_data.likes_count,
-            tags: resp_data.tags,
-            thumb: resp_data.thumb,
-            title: resp_data.title,
-            total_likes: resp_data.total_likes,
-            total_views: resp_data.total_views,
-            updated_at: resp_data.updated_at,
+            name: resp_data.name,
+            image: resp_data.image,
+            liked: resp_data.liked,
+            is_favorite: resp_data.is_favorite,
+            update_at: resp_data.update_at,
             is_downloaded: false,
             comic_download_dir: PathBuf::new(),
         };
