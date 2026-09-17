@@ -13,6 +13,12 @@ use crate::{
     utils,
 };
 
+/// jm 搜索接口固定每页返回的条数。
+///
+/// jm 的 `/search` 请求不传 limit，服务端约定每页 80 条；
+/// 这里显式声明，供 `pages` 换算与前端分页使用。
+pub const SEARCH_PAGE_SIZE: i64 = 80;
+
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchResult(pub SearchList<ComicInSearch>);
@@ -22,6 +28,12 @@ pub struct SearchResult(pub SearchList<ComicInSearch>);
 pub struct SearchList<T> {
     pub search_query: String,
     pub total: i64,
+    /// 每页条数（jm 固定 80），用于前端分页显示，语义对齐原 pica 版。
+    pub limit: i64,
+    /// 当前页码（1-based）。
+    pub page: i64,
+    /// 总页数 = ceil(total / limit)，至少 1。
+    pub pages: i64,
     pub docs: Vec<T>,
 }
 
@@ -43,6 +55,7 @@ impl SearchResult {
     pub fn from_resp_data(
         app: &AppContext,
         resp_data: SearchRespData,
+        page: i64,
     ) -> anyhow::Result<SearchResult> {
         let id_to_dir_map =
             utils::create_id_to_dir_map(app).context("创建漫画ID到下载目录映射失败")?;
@@ -53,9 +66,20 @@ impl SearchResult {
             docs.push(comic);
         }
 
+        let limit = SEARCH_PAGE_SIZE;
+        let total = resp_data.total;
+        let pages = if total > 0 {
+            (total + limit - 1) / limit
+        } else {
+            1
+        };
+
         let result = SearchResult(SearchList {
             search_query: resp_data.search_query,
-            total: resp_data.total,
+            total,
+            limit,
+            page,
+            pages,
             docs,
         });
 

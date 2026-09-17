@@ -134,10 +134,16 @@ export type ComicInSearch = {
   comicDownloadDir: string;
 };
 
-/** 对应后端 `types::SearchResult`。注意没有 limit/page/pages。 */
+/** 对应后端 `types::SearchResult`。分页字段语义对齐原 pica 版。 */
 export type SearchResult = {
   searchQuery: string;
   total: number;
+  /** 每页条数（jm 固定 80）。 */
+  limit: number;
+  /** 当前页（1-based）。 */
+  page: number;
+  /** 总页数。 */
+  pages: number;
   docs: ComicInSearch[];
 };
 

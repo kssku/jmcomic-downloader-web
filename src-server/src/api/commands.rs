@@ -1,4 +1,4 @@
-//! 业务命令层：原 `src-tauri/src/commands.rs` 的 Web 版对应物。
+﻿//! 业务命令层：原 `src-tauri/src/commands.rs` 的 Web 版对应物。
 //!
 //! 与桌面版的差异：
 //! - `#[tauri::command]` / `#[specta::specta]` 全部去掉，改成普通 `async fn`，
@@ -122,7 +122,7 @@ pub async fn search_comic(
         .map_err(|err| CommandError::from("搜索漫画失败", err))?;
 
     let search_result = match search_resp {
-        SearchResp::SearchRespData(data) => SearchResult::from_resp_data(app, data)
+        SearchResp::SearchRespData(data) => SearchResult::from_resp_data(app, data, i64::from(page))
             .map_err(|err| CommandError::from("搜索漫画失败", err))?,
         SearchResp::ComicRespData(comic) => {
             // jm 搜索命中单个漫画时会返回 redirect，这里把它包装成一条搜索结果。
@@ -144,6 +144,9 @@ pub async fn search_comic(
             SearchResult(crate::types::SearchList {
                 search_query: keyword.clone(),
                 total: 1,
+                limit: crate::types::SEARCH_PAGE_SIZE,
+                page: i64::from(page),
+                pages: 1,
                 docs: vec![item],
             })
         }
