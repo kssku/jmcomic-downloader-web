@@ -56,7 +56,7 @@ static GUARD: OnceLock<parking_lot::Mutex<Option<WorkerGuard>>> = OnceLock::new(
 ///
 /// 曾用 TRACE，但每张图片下载都打日志，单日日志会涨到 20GB 撑爆磁盘。
 /// INFO 保留关键事件（下载完成/失败/章节状态），足够排查问题；
-/// 需要更详细日志时用 `PICA_LOG_LEVEL=TRACE/DEBUG` 覆盖。
+/// 需要更详细日志时用 `JM_LOG_LEVEL=TRACE/DEBUG` 覆盖。
 ///
 /// 抽成纯函数是为了可测：这是**磁盘不被撑爆的唯一防线**，
 /// 一旦默认值回退成 TRACE，故障要等到磁盘写满才暴露。
@@ -77,7 +77,7 @@ pub fn init(app: &AppContext) -> anyhow::Result<()> {
         "解析lib_target失败: lib_module_path={lib_module_path}"
     ))?;
     // 过滤掉来自其他库的日志。
-    let level = resolve_level(std::env::var("PICA_LOG_LEVEL").ok().as_deref());
+    let level = resolve_level(std::env::var("JM_LOG_LEVEL").ok().as_deref());
     let target_filter = Targets::new().with_target(lib_target, level);
     // 输出到文件
     let (file_layer, guard) = create_file_layer(app)?;
@@ -153,7 +153,7 @@ where
     }
     let logs_dir = logs_dir(app).context("获取日志目录失败")?;
     let file_appender = RollingFileAppender::builder()
-        .filename_prefix("picacomic-downloader")
+        .filename_prefix("jmcomic-downloader")
         .filename_suffix("log")
         .rotation(Rotation::DAILY)
         .build(&logs_dir)
@@ -271,13 +271,13 @@ mod tests {
         assert_eq!(
             resolve_level(None),
             Level::INFO,
-            "未设置 PICA_LOG_LEVEL 时必须默认 INFO"
+            "未设置 JM_LOG_LEVEL 时必须默认 INFO"
         );
     }
 
     #[test]
     fn level_is_overridable_via_env() {
-        // 验收标准 5 的后半句：设 PICA_LOG_LEVEL=trace 可恢复详细日志。
+        // 验收标准 5 的后半句：设 JM_LOG_LEVEL=trace 可恢复详细日志。
         assert_eq!(resolve_level(Some("trace")), Level::TRACE);
         assert_eq!(resolve_level(Some("TRACE")), Level::TRACE);
         assert_eq!(resolve_level(Some("debug")), Level::DEBUG);
@@ -293,7 +293,7 @@ mod tests {
             assert_eq!(
                 resolve_level(Some(raw)),
                 Level::INFO,
-                "无法识别的 PICA_LOG_LEVEL={raw:?} 必须回落到 INFO"
+                "无法识别的 JM_LOG_LEVEL={raw:?} 必须回落到 INFO"
             );
         }
     }

@@ -22,7 +22,7 @@ pub fn run(conn: &Connection) -> anyhow::Result<()> {
         // 重建库还是换回旧镜像。
         anyhow::bail!(
             "数据库 schema 版本为 `{current}`，高于本程序支持的 `{SCHEMA_VERSION}`。\
-             请升级 pica-server，或备份后删除 `pica_server.db` 重建。"
+             请升级 jmcomic-server，或备份后删除 `jmcomic_server.db` 重建。"
         );
     }
 

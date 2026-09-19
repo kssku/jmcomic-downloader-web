@@ -1,4 +1,4 @@
-//! pica-server 入口。
+//! jmcomic-server 入口。
 //!
 //! 职责：
 //! 1. 初始化路径 / 配置 / 日志 / 运行期组件（`AppContext`）。
@@ -6,12 +6,12 @@
 //! 3. 监听 HTTP 端口常驻。
 //!
 //! 环境变量：
-//! - `PICA_DATA_DIR`  数据根目录，默认 `./data`。Docker 里挂到 `/data`。
-//! - `PICA_PORT`      监听端口，默认 `8080`。
-//! - `PICA_BIND`      监听地址，默认 `0.0.0.0`。
-//! - `PICA_AUTH_TOKEN` 访问令牌，不设则随机生成并打印。
-//! - `PICA_AUTH_USER`  Basic Auth 用户名，默认 `admin`。
-//! - `PICA_STATIC_DIR` 前端静态资源目录，默认 `./dist`。
+//! - `JM_DATA_DIR`  数据根目录，默认 `./data`。Docker 里挂到 `/data`。
+//! - `JM_PORT`      监听端口，默认 `8080`。
+//! - `JM_BIND`      监听地址，默认 `0.0.0.0`。
+//! - `JM_AUTH_TOKEN` 访问令牌，不设则随机生成并打印。
+//! - `JM_AUTH_USER`  Basic Auth 用户名，默认 `admin`。
+//! - `JM_STATIC_DIR` 前端静态资源目录，默认 `./dist`。
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -89,10 +89,10 @@ fn build_router(app: AppContext, auth: AuthConfig, static_dir: &PathBuf) -> Rout
         .layer(TraceLayer::new_for_http())
 }
 
-/// 监听地址，来自 `PICA_BIND` / `PICA_PORT`。
+/// 监听地址，来自 `JM_BIND` / `JM_PORT`。
 fn bind_addr() -> (String, u16) {
-    let bind = std::env::var("PICA_BIND").unwrap_or_else(|_| String::from("0.0.0.0"));
-    let port = std::env::var("PICA_PORT")
+    let bind = std::env::var("JM_BIND").unwrap_or_else(|_| String::from("0.0.0.0"));
+    let port = std::env::var("JM_PORT")
         .ok()
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(8080);
@@ -101,7 +101,7 @@ fn bind_addr() -> (String, u16) {
 
 /// 前端静态资源目录。
 fn static_dir() -> PathBuf {
-    std::env::var("PICA_STATIC_DIR")
+    std::env::var("JM_STATIC_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("./dist"))
 }
@@ -118,7 +118,7 @@ fn print_startup_banner(
 
     println!();
     println!("  ┌─────────────────────────────────────────────────────────┐");
-    println!("  │  pica-server  已启动                                    │");
+    println!("  │  jmcomic-server  已启动                                  │");
     println!("  └─────────────────────────────────────────────────────────┘");
     println!("    访问地址   http://{addr}/");
     println!("    数据目录   {data_dir}");
@@ -127,7 +127,7 @@ fn print_startup_banner(
     if token_generated {
         println!("    访问令牌   {}  （随机生成，请立即保存）", auth.token);
     } else {
-        println!("    访问令牌   来自环境变量 PICA_AUTH_TOKEN");
+        println!("    访问令牌   来自环境变量 JM_AUTH_TOKEN");
     }
     println!();
     println!("    首次登录：在网页里填入上面的「访问令牌」即可。");

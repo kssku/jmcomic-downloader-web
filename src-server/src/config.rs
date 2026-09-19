@@ -100,7 +100,9 @@ impl Config {
             img_concurrency: 20,
             img_download_interval_sec: 0,
             should_download_cover: true,
-            api_base_url: "https://picaapi.go2778.com".to_string(),
+            // 注意：这里只填域名，不要带 https:// 前缀。
+            // jm_client.rs 拼接请求时会自己加，写成 "https://xxx" 会拼出双前缀。
+            api_base_url: "18comic.vip".to_string(),
         }
     }
 }

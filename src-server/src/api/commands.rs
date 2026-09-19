@@ -1,4 +1,4 @@
-﻿//! 业务命令层：原 `src-tauri/src/commands.rs` 的 Web 版对应物。
+//! 业务命令层：原 `src-tauri/src/commands.rs` 的 Web 版对应物。
 //!
 //! 与桌面版的差异：
 //! - `#[tauri::command]` / `#[specta::specta]` 全部去掉，改成普通 `async fn`，
@@ -53,10 +53,10 @@ pub fn save_config(app: &AppContext, config: Config) -> CommandResult<()> {
     tracing::debug!("保存配置成功");
 
     if proxy_changed || api_base_url_changed {
-        let pica_client = app.get_jm_client();
-        pica_client.reload_client();
+        let jm_client = app.get_jm_client();
+        jm_client.reload_client();
         if api_base_url_changed {
-            tracing::info!("API Base URL 已更新为: {}", pica_client.base_url());
+            tracing::info!("API Base URL 已更新为: {}", jm_client.base_url());
         }
     }
 
@@ -93,9 +93,9 @@ pub async fn login(app: &AppContext, username: String, password: String) -> Comm
 }
 
 pub async fn get_user_profile(app: &AppContext) -> CommandResult<GetUserProfileRespData> {
-    let pica_client = app.get_jm_client();
+    let jm_client = app.get_jm_client();
 
-    let user_profile = pica_client
+    let user_profile = jm_client
         .get_user_profile()
         .await
         .map_err(|err| CommandError::from("获取用户信息失败", err))?;

@@ -14,7 +14,7 @@
 //!   而 SQLite 已经在青龙侧跑着，运维熟悉。
 //! - **单写连接 + WAL**。章节并发 3 + 图片并发 20，写操作全部集中在状态迁移点，
 //!   不在图片下载热路径上逐张写盘。
-//! - **数据库文件独立**（`PICA_DATA_DIR/pica_server.db`），**不与青龙的
+//! - **数据库文件独立**（`JM_DATA_DIR/jmcomic_server.db`），**不与青龙的
 //!   `bica_comics.db` 混用**，避免两套 schema 互相干扰。
 
 pub mod migrations;

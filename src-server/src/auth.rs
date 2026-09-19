@@ -26,26 +26,26 @@ pub struct AuthConfig {
     pub token: Arc<str>,
     /// Basic Auth 的用户名。默认 `admin`。
     pub username: Arc<str>,
-    /// 是否关闭认证。由 `PICA_AUTH_DISABLED` 控制，为 true 时所有请求直接放行。
+    /// 是否关闭认证。由 `JM_AUTH_DISABLED` 控制，为 true 时所有请求直接放行。
     pub disabled: bool,
 }
 
 impl AuthConfig {
     /// 从环境变量读取。
     ///
-    /// - `PICA_AUTH_TOKEN`：不设置则随机生成（返回值里的 `generated` 为 `true`）。
-    /// - `PICA_AUTH_USER`：默认 `admin`。
+    /// - `JM_AUTH_TOKEN`：不设置则随机生成（返回值里的 `generated` 为 `true`）。
+    /// - `JM_AUTH_USER`：默认 `admin`。
     pub fn from_env() -> (Self, bool) {
-        let (token, generated) = match std::env::var("PICA_AUTH_TOKEN") {
+        let (token, generated) = match std::env::var("JM_AUTH_TOKEN") {
             Ok(token) if !token.trim().is_empty() => (token, false),
             _ => (random_token(), true),
         };
         let username =
-            std::env::var("PICA_AUTH_USER").unwrap_or_else(|_| String::from("admin"));
+            std::env::var("JM_AUTH_USER").unwrap_or_else(|_| String::from("admin"));
 
-        // PICA_AUTH_DISABLED=true/1 时关闭认证，所有请求直接放行。
+        // JM_AUTH_DISABLED=true/1 时关闭认证，所有请求直接放行。
         let disabled = matches!(
-            std::env::var("PICA_AUTH_DISABLED").as_deref(),
+            std::env::var("JM_AUTH_DISABLED").as_deref(),
             Ok("true") | Ok("1") | Ok("TRUE") | Ok("True")
         );
 
@@ -118,7 +118,7 @@ pub async fn require_auth(
     req: Request,
     next: Next,
 ) -> Response {
-    // 认证被显式关闭时（PICA_AUTH_DISABLED），所有请求直接放行。
+    // 认证被显式关闭时（JM_AUTH_DISABLED），所有请求直接放行。
     if auth.disabled {
         return next.run(req).await;
     }
@@ -199,7 +199,7 @@ fn extract_query_token(req: &Request) -> Option<&str> {
 fn unauthorized() -> Response {
     (
         StatusCode::UNAUTHORIZED,
-        [(header::WWW_AUTHENTICATE, "Basic realm=\"pica-server\"")],
+        [(header::WWW_AUTHENTICATE, "Basic realm=\"jmcomic-server\"")],
         axum::Json(serde_json::json!({
             "errTitle": "未认证",
             "errMessage": "缺少或无效的访问凭证，请在请求头带上 Authorization: Bearer <token>",

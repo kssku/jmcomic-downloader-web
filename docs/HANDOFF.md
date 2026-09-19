@@ -1,4 +1,4 @@
-﻿# 交接文档
+# 交接文档
 
 ## 项目
 
@@ -24,7 +24,7 @@
   - **block_num 编码进 url 的 fragment（`#block=N`）**，随图片清单落库，断点续传后仍可取回，无需改 DB schema。
   - `download_img` 解析 fragment 得 `block_num`，请求用去 fragment 的干净 url。
   - `save_img` 新增 `block_num` 参数，解码后按 `stitch_img` 还原（jm 图片纵向切块乱序）。
-- `main.rs`：`pica_server` -> `jmcomic_server`。
+- `main.rs`：`pica_server` -> `jmcomic_server`；环境变量 `PICA_*` -> `JM_*`。
 
 ### jm 图片还原算法（来自桌面版）
 
@@ -68,7 +68,7 @@ block_num:
 
 后端 `auth.rs` 用独立的静态 `AuthConfig`（Bearer token / Basic），与 jm 登录**解耦**。
 jm 登录只把 cookie 存进 `JmClient`，不产出可作 Authorization 的 token。
-前端 `Authorization` 输入框 / `PICA_AUTH_DISABLED` 仍是唯一的 API 鉴权入口；
+前端 `Authorization` 输入框 / `JM_AUTH_DISABLED` 仍是唯一的 API 鉴权入口；
 `LoginDialog` 现在只做 jm 账号登录，不再篡改 token。
 
 **验证**
@@ -92,6 +92,6 @@ jm 登录只把 cookie 存进 `JmClient`，不产出可作 Authorization 的 tok
 ## 关键决策
 
 1. 路线 B（保留 String 架构）。
-2. 包名 `jmcomic-server`，数据目录 `JM_DATA_DIR`，db `jm_server.db`。
+2. 包名 `jmcomic-server`，数据目录 `JM_DATA_DIR`，db `jmcomic_server.db`。
 3. MIT，保留原项目版权。
 

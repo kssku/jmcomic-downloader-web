@@ -1,4 +1,4 @@
-﻿use std::{
+use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
@@ -21,7 +21,7 @@ use super::ChapterInfo;
 #[serde(rename_all = "camelCase")]
 #[allow(clippy::struct_field_names)]
 pub struct Comic {
-    /// jm 的 album id（i64，存为 String 以复用 pica-server 的架构）。
+    /// jm 的 album id（i64，存为 String 以复用既有架构）。
     pub id: String,
     pub name: String,
     pub addtime: String,

@@ -2,7 +2,7 @@
 //!
 //! 原桌面版通过 `app.state::<T>()` / `app.path().app_data_dir()` / `event.emit(&app)`
 //! 访问全局资源。Web 版把这些收敛到一个显式、可克隆的上下文对象里，
-//! 从而让 `pica_client` / `download_manager` / `types` 等核心模块完全脱离 Tauri。
+//! 从而让 `jm_client` / `download_manager` / `types` 等核心模块完全脱离 Tauri。
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

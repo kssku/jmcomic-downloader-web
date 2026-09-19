@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1
 
 # ════════════════════════════════════════════════════════════════════
-#  pica-server —— 哔咔漫画下载器的 Web 版（NAS / Docker 部署）
+#  jmcomic-server —— 禁漫漫画下载器的 Web 版（NAS / Docker 部署）
 #
 #  三阶段构建：
 #    1. web     : 编译 Vue 前端，产出 dist/
-#    2. server  : 编译 Rust 后端（axum），产出 pica-server 静态二进制
+#    2. server  : 编译 Rust 后端（axum），产出 jmcomic-server 静态二进制
 #    3. runtime : 只带二进制 + dist + CA 证书，跑在 debian-slim 上
 #
 #  最终镜像不含 Node / Rust / 源码，体积约 100 MB 上下。
@@ -110,7 +110,7 @@ RUN mkdir -p src \
 COPY src-server/src ./src
 RUN find src -type f -exec touch {} + \
     && cargo build --release \
-    && test -x target/release/pica-server
+    && test -x target/release/jmcomic-server
 
 
 # ── 阶段 3：运行期 ──────────────────────────────────────────────────
@@ -127,12 +127,12 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # 非 root 运行。固定 uid/gid 便于宿主机上给下载目录授权
-RUN groupadd -g 1000 pica \
-    && useradd -u 1000 -g pica -m -s /usr/sbin/nologin pica
+RUN groupadd -g 1000 jm \
+    && useradd -u 1000 -g jm -m -s /usr/sbin/nologin jm
 
 WORKDIR /app
 
-COPY --from=server /build/target/release/pica-server /app/pica-server
+COPY --from=server /build/target/release/jmcomic-server /app/jmcomic-server
 COPY --from=web /build/dist /app/dist
 
 # 数据目录：配置、日志、漫画全部落在这里，必须挂 volume
@@ -148,29 +148,29 @@ COPY --from=web /build/dist /app/dist
 #
 # a+rX：所有文件加可读；目录额外加可进入（X 只对目录和已有可执行位的文件生效）
 RUN mkdir -p /data \
-    && chown -R pica:pica /app /data \
-    && chmod -R a+rX /app/dist /app/pica-server
+    && chown -R jm:jm /app /data \
+    && chmod -R a+rX /app/dist /app/jmcomic-server
 VOLUME ["/data"]
 
-USER pica
+USER jm
 
-ENV PICA_DATA_DIR=/data \
-    PICA_STATIC_DIR=/app/dist \
-    PICA_BIND=0.0.0.0 \
-    PICA_PORT=8080 \
+ENV JM_DATA_DIR=/data \
+    JM_STATIC_DIR=/app/dist \
+    JM_BIND=0.0.0.0 \
+    JM_PORT=8080 \
     TZ=Asia/Shanghai
 
 # 运行期代理与构建期代理彻底分离。
 #
 # 背景：上面的 HTTP_PROXY / HTTPS_PROXY 是「构建期」的，由 build args 传入。
 # 而 reqwest 在运行期也会读同名环境变量 —— 如果放任构建参数渗进来，
-# pica-server 访问哔咔 API 时就会莫名绕道代理：在构建机上恰好能通，
+# jmcomic-server 访问禁漫 API 时就会莫名绕道代理：在构建机上恰好能通，
 # 所以问题不会当场暴露，等镜像换环境或代理下线才爆发，且表现为
 # 「全部请求超时」，极难定位。
 #
 # 这里把四个变量显式置空，切断继承链。真正需要运行期代理的部署
 # （例如 NAS 直连哔咔不通、必须走代理），由 docker-compose 的
-# environment 段传入 PICA_HTTP_PROXY / PICA_HTTPS_PROXY 覆盖。
+# environment 段传入 JM_HTTP_PROXY / JM_HTTPS_PROXY 覆盖。
 #
 # 为什么用 ENV X="" 而不是 UNSET：Dockerfile 没有 UNSET 指令，
 # 空串是切断继承的唯一手段；reqwest 对空串按「未配置」处理。
@@ -190,4 +190,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8080/api/health || exit 1
 
-ENTRYPOINT ["/app/pica-server"]
+ENTRYPOINT ["/app/jmcomic-server"]

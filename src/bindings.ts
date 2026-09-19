@@ -1,4 +1,4 @@
-﻿// 手写的 Web 数据层，替代原 tauri-specta 生成的 bindings.ts。
+// 手写的 Web 数据层，替代原 tauri-specta 生成的 bindings.ts。
 // 保留 `commands.xxx(...)` 与 `events.yyy.listen(cb)` 的调用形状，只替换传输层：
 //   - commands  -> HTTP POST /api/...（错误体为 CommandError，转为 { status: "error", error }）
 //   - events    -> 单条 WebSocket 连接，按 topic 分发
@@ -10,7 +10,7 @@
 const BASE_URL: string = "";
 
 /** 认证 token 的 localStorage key，需与 store.ts 保持一致。 */
-const TOKEN_KEY = "pica_token";
+const TOKEN_KEY = "jm_token";
 
 function getToken(): string {
 	return localStorage.getItem(TOKEN_KEY) ?? "";

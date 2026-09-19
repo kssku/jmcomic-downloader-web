@@ -633,14 +633,14 @@ mod tests {
         fn new() -> Self {
             let n = COUNTER.fetch_add(1, Ordering::SeqCst);
             let dir = std::env::temp_dir().join(format!(
-                "pica-store-test-{}-{}-{}",
+                "jm-store-test-{}-{}-{}",
                 std::process::id(),
                 now_ts(),
                 n
             ));
             std::fs::create_dir_all(&dir).expect("创建临时目录失败");
             Self {
-                path: dir.join("pica_server.db"),
+                path: dir.join("jmcomic_server.db"),
             }
         }
 
