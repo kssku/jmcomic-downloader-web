@@ -102,7 +102,11 @@ impl Config {
             should_download_cover: true,
             // 注意：这里只填域名，不要带 https:// 前缀。
             // jm_client.rs 拼接请求时会自己加，写成 "https://xxx" 会拼出双前缀。
-            api_base_url: "18comic.vip".to_string(),
+            //
+            // 必须是 APP 专用域名（见 jm_client.rs 的 API_DOMAIN_*）。
+            // 不要填 18comic.vip 等网页版域名：那是网页路由，会被 Cloudflare
+            // JS 挑战（HTTP 403 "Just a moment..."）拦掉，拿不到 JSON。
+            api_base_url: crate::jm_client::API_DOMAIN_2.to_string(),
         }
     }
 }
