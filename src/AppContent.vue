@@ -1,4 +1,4 @@
-﻿<script setup lang="tsx">
+<script setup lang="tsx">
 import { onMounted, ref, watch } from 'vue'
 import { commands, setToken, reconnectEvents } from './bindings.ts'
 import { useMessage, useNotification } from 'naive-ui'
@@ -109,7 +109,7 @@ onMounted(async () => {
           round
           :size="32"
           :src="store.userProfile.photo"
-          fallback-src="https://storage-b.picacomic.com/static/b3411e38-32f2-4ec4-a46c-2edee925dbbd.jpg" />
+          fallback-src="/favicon.png" />
         <span class="whitespace-nowrap">{{ store.userProfile.username }}</span>
       </div>
     </div>

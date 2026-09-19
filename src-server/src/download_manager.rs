@@ -115,7 +115,7 @@ impl DownloadManager {
         // `downloading` 在这里被降级为 `pending`——它是进程内瞬态，
         // 上一个进程已经死了，保留它只会让状态机卡在一个永远不会推进的态。
         //
-        // 恢复需要走哔咔 API 拿漫画信息，是异步的，所以丢进后台任务。
+        // 恢复需要走禁漫 API 拿漫画信息，是异步的，所以丢进后台任务。
         // 恢复失败不阻断启动：服务能起来比任务列表完整更重要。
         let recover_manager = manager.clone();
         tokio::spawn(async move {
@@ -133,7 +133,7 @@ impl DownloadManager {
     /// 从 DB 里把上次进程遗留的未完成任务重新拉起。
     ///
     /// 这些任务的章节信息来自 DB 里的 `chapter_id`，需要重新走一次
-    /// 哔咔 API 拿完整漫画信息才能重建 `DownloadTask`。
+    /// 禁漫 API 拿完整漫画信息才能重建 `DownloadTask`。
     async fn recover_pending_tasks(&self) -> anyhow::Result<()> {
         let tasks = TaskRepo::list_unfinished(self.app.store())?;
         if tasks.is_empty() {
@@ -1036,7 +1036,7 @@ impl DownloadTask {
     }
 
     async fn sleep_between_chapter(&self) {
-        // 章节之间的间隔仍然保留：服务端 IP 比桌面端更容易触发哔咔风控，
+        // 章节之间的间隔仍然保留：服务端 IP 比桌面端更容易触发禁漫风控，
         // 这个节流是必要的保护。只是不再逐秒推送倒计时事件。
         let remaining_sec = self.app.config().read().chapter_download_interval_sec;
         if remaining_sec > 0 {
