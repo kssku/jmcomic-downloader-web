@@ -43,7 +43,7 @@ impl Paths {
 
     /// 下载任务持久化数据库。与青龙的 `bica_comics.db` 完全独立。
     pub fn db_path(&self) -> PathBuf {
-        self.data_dir.join("jm_server.db")
+        self.data_dir.join("jmcomic_server.db")
     }
 }
 
