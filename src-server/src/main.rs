@@ -1,27 +1,26 @@
 //! jmcomic-server 入口。
 //!
+//! 纯 API 后台：只提供 REST API + WebSocket，不再托管前端静态资源。
+//!
 //! 职责：
 //! 1. 初始化路径 / 配置 / 日志 / 运行期组件（`AppContext`）。
-//! 2. 组装 axum Router：REST API + WebSocket + 前端静态资源。
+//! 2. 组装 axum Router：REST API + WebSocket。
 //! 3. 监听 HTTP 端口常驻。
 //!
 //! 环境变量：
 //! - `JM_DATA_DIR`  数据根目录，默认 `./data`。Docker 里挂到 `/data`。
 //! - `JM_PORT`      监听端口，默认 `8080`。
 //! - `JM_BIND`      监听地址，默认 `0.0.0.0`。
-//! - `JM_AUTH_TOKEN` 访问令牌，不设则随机生成并打印。
-//! - `JM_AUTH_USER`  Basic Auth 用户名，默认 `admin`。
-//! - `JM_STATIC_DIR` 前端静态资源目录，默认 `./dist`。
+//! - `JM_AUTH_TOKEN` 访问令牌，默认不校验（见 `JM_AUTH_DISABLED`）。
+//! - `JM_AUTH_DISABLED` 设为 `false` 才开启令牌校验，默认 `true`（局域网免认证）。
 
 use std::net::SocketAddr;
-use std::path::PathBuf;
 
 use anyhow::Context as _;
 use axum::Router;
 use jmcomic_server::api::routes;
 use jmcomic_server::auth::AuthConfig;
 use jmcomic_server::context::{AppContext, Paths};
-use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 
 #[tokio::main]
@@ -37,16 +36,15 @@ async fn main() -> anyhow::Result<()> {
     // 返回的 bool 表示 Token 是否为随机生成（true = 没配环境变量）。
     let (auth, token_generated) = AuthConfig::from_env();
     let (bind, port) = bind_addr();
-    let static_dir = static_dir();
 
-    let router = build_router(app.clone(), auth.clone(), &static_dir);
+    let router = build_router(app.clone(), auth.clone());
 
     let addr: SocketAddr = format!("{bind}:{port}")
         .parse()
         .with_context(|| format!("解析监听地址 `{bind}:{port}` 失败"))?;
 
     // 随机生成的 Token 只在这里打印一次，之后不再出现在任何日志里。
-    print_startup_banner(&addr, &auth, token_generated, &static_dir, &app);
+    print_startup_banner(&addr, &auth, token_generated, &app);
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await
@@ -63,30 +61,16 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// 组装全部路由。
+/// 组装全部路由（纯 API 后台）。
 ///
 /// 层级顺序（从外到内）：
 /// 1. `TraceLayer` —— 请求日志。
-/// 2. 静态资源 fallback —— 非 `/api/*` 的路径交给前端 SPA。
-/// 3. `/api/*` 路由（内部自带认证中间件）。
-fn build_router(app: AppContext, auth: AuthConfig, static_dir: &PathBuf) -> Router {
-    // SPA fallback：找不到的路径一律回 index.html，让前端路由处理。
-    //
-    // 这里必须用 `.fallback(ServeFile)` 而不是 `.not_found_service(ServeFile)`。
-    // 在 tower-http 0.5 下，`not_found_service` 只在 ServeDir 自身判定 404 时
-    // 才被调用，像 `/some/spa/route` 这种既不是文件、又不是目录的路径会
-    // 直接透出 404，SPA 路由全部失效（实测确认）。`.fallback` 才能兜住。
-    //
-    // 反例警告：不要写成两个 `fallback_service(...)` 串联——
-    // 后者会**整个替换**前者，导致真实 JS/CSS 资源也被替换成 index.html。
-    let index = static_dir.join("index.html");
-    let serve_dir = ServeDir::new(static_dir).fallback(ServeFile::new(index));
-
+/// 2. `/api/*` 路由（内部自带认证中间件，默认关闭）。
+fn build_router(app: AppContext, auth: AuthConfig) -> Router {
     // `routes::router` 已经带好 state 与认证中间件（含 `/ws`）。
     let api = Router::new().nest("/api", routes::router(app, auth));
 
-    api.fallback_service(serve_dir)
-        .layer(TraceLayer::new_for_http())
+    api.layer(TraceLayer::new_for_http())
 }
 
 /// 监听地址，来自 `JM_BIND` / `JM_PORT`。
@@ -99,38 +83,26 @@ fn bind_addr() -> (String, u16) {
     (bind, port)
 }
 
-/// 前端静态资源目录。
-fn static_dir() -> PathBuf {
-    std::env::var("JM_STATIC_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("./dist"))
-}
-
 /// 启动横幅。随机 Token 只在这里出现一次。
-fn print_startup_banner(
-    addr: &SocketAddr,
-    auth: &AuthConfig,
-    token_generated: bool,
-    static_dir: &PathBuf,
-    app: &AppContext,
-) {
+fn print_startup_banner(addr: &SocketAddr, auth: &AuthConfig, token_generated: bool, app: &AppContext) {
     let data_dir = app.paths().data_dir.display().to_string();
 
     println!();
     println!("  ┌─────────────────────────────────────────────────────────┐");
-    println!("  │  jmcomic-server  已启动                                  │");
+    println!("  │  jmcomic-server  已启动（纯 API 后台）                    │");
     println!("  └─────────────────────────────────────────────────────────┘");
-    println!("    访问地址   http://{addr}/");
+    println!("    API 地址   http://{addr}/api/");
     println!("    数据目录   {data_dir}");
-    println!("    静态资源   {}", static_dir.display());
-    println!("    用户名     {}", auth.username);
-    if token_generated {
-        println!("    访问令牌   {}  （随机生成，请立即保存）", auth.token);
+    if auth.disabled {
+        println!("    认证       已关闭（JM_AUTH_DISABLED 默认）");
     } else {
-        println!("    访问令牌   来自环境变量 JM_AUTH_TOKEN");
+        println!("    用户名     {}", auth.username);
+        if token_generated {
+            println!("    访问令牌   {}  （随机生成，请立即保存）", auth.token);
+        } else {
+            println!("    访问令牌   来自环境变量 JM_AUTH_TOKEN");
+        }
     }
-    println!();
-    println!("    首次登录：在网页里填入上面的「访问令牌」即可。");
     println!();
 }
 

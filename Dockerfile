@@ -138,7 +138,7 @@ RUN groupadd -g 1000 jm \
 WORKDIR /app
 
 COPY --from=server /build/target/release/jmcomic-server /app/jmcomic-server
-# 纯 API 模式：不拷贝前端 dist（静态目录留空，由 JM_STATIC_DIR 指向空目录）
+# 纯 API 模式：不拷贝前端 dist，也不再有静态资源目录（main.rs 只挂 REST + WS）。
 
 # 数据目录：配置、日志、漫画全部落在这里，必须挂 volume
 #

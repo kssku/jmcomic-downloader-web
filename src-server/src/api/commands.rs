@@ -14,12 +14,8 @@ use crate::config::Config;
 use crate::context::AppContext;
 use crate::errors::{CommandError, CommandResult};
 use crate::extensions::AppContextExt;
-use crate::responses::{GetUserProfileRespData, SearchResp};
 use crate::store::{DbImage, DbTask, DbTaskState, ImageRepo, TaskRepo, TaskStats};
-use crate::types::{
-    ChapterInfo, Comic, ComicInSearch,
-    SearchResult, SearchSort,
-};
+use crate::types::{ChapterInfo, Comic};
 use crate::utils;
 
 // ════════════════════════════════════════════════════════════════
@@ -71,97 +67,6 @@ pub fn save_config(app: &AppContext, config: Config) -> CommandResult<()> {
     }
 
     Ok(())
-}
-
-// ════════════════════════════════════════════════════════════════
-// 登录与用户信息
-// ════════════════════════════════════════════════════════════════
-
-pub async fn login(app: &AppContext, username: String, password: String) -> CommandResult<String> {
-    let jm_client = app.get_jm_client();
-
-    // jm 的登录态保存在 `JmClient` 内部的 cookie jar 里，不再返回 token。
-    // 为兼容前端「登录后拿一个字符串」的既有契约，这里返回用户名。
-    let user_profile = jm_client
-        .login(&username, &password)
-        .await
-        .map_err(|err| CommandError::from("登录失败", err))?;
-
-    tracing::info!(username = %user_profile.username, "jm 登录成功");
-
-    Ok(user_profile.username)
-}
-
-pub async fn get_user_profile(app: &AppContext) -> CommandResult<GetUserProfileRespData> {
-    let jm_client = app.get_jm_client();
-
-    let user_profile = jm_client
-        .get_user_profile()
-        .await
-        .map_err(|err| CommandError::from("获取用户信息失败", err))?;
-
-    Ok(user_profile)
-}
-
-// ════════════════════════════════════════════════════════════════
-// 搜索 / 详情 / 收藏夹
-// ════════════════════════════════════════════════════════════════
-
-pub async fn search_comic(
-    app: &AppContext,
-    keyword: String,
-    sort: SearchSort,
-    page: i32,
-    _categories: Vec<String>,
-) -> CommandResult<SearchResult> {
-    let jm_client = app.get_jm_client();
-
-    let search_resp = jm_client
-        .search(&keyword, i64::from(page), sort)
-        .await
-        .map_err(|err| CommandError::from("搜索漫画失败", err))?;
-
-    let search_result = match search_resp {
-        SearchResp::SearchRespData(data) => SearchResult::from_resp_data(app, data, i64::from(page))
-            .map_err(|err| CommandError::from("搜索漫画失败", err))?,
-        SearchResp::ComicRespData(comic) => {
-            // jm 搜索命中单个漫画时会返回 redirect，这里把它包装成一条搜索结果。
-            let comic = *comic;
-            let id_to_dir_map = crate::utils::create_id_to_dir_map(app)
-                .map_err(|err| CommandError::from("搜索漫画失败", err))?;
-            let id = comic.id.to_string();
-            let item = crate::types::ComicInSearch {
-                id: id.clone(),
-                author: comic.author.join(", "),
-                name: comic.name.clone(),
-                image: String::new(),
-                liked: comic.liked,
-                is_favorite: comic.is_favorite,
-                update_at: 0,
-                is_downloaded: id_to_dir_map.contains_key(&id),
-                comic_download_dir: id_to_dir_map.get(&id).cloned().unwrap_or_default(),
-            };
-            SearchResult(crate::types::SearchList {
-                search_query: keyword.clone(),
-                total: 1,
-                limit: crate::types::SEARCH_PAGE_SIZE,
-                page: i64::from(page),
-                pages: 1,
-                docs: vec![item],
-            })
-        }
-    };
-
-    Ok(search_result)
-}
-
-pub async fn get_comic(app: &AppContext, comic_id: String) -> CommandResult<Comic> {
-    let comic = utils::get_comic(app, &comic_id)
-        .await
-        .context(format!("获取ID为`{comic_id}`的漫画失败"))
-        .map_err(|err| CommandError::from("获取漫画失败", err))?;
-
-    Ok(comic)
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -818,15 +723,6 @@ pub fn delete_task(app: &AppContext, chapter_id: &str) -> CommandResult<()> {
 
 
 /// 当前后端版本与运行状态，给前端「关于」页用。
-pub fn get_server_info(app: &AppContext) -> serde_json::Value {
-    serde_json::json!({
-        "version": env!("CARGO_PKG_VERSION"),
-        "dataDir": app.paths().data_dir.to_string_lossy(),
-        "downloadDir": app.config_read().download_dir.to_string_lossy(),
-        "eventSubscribers": app.events().receiver_count(),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::{purge_cutoff, DEFAULT_PURGE_RETENTION_DAYS};

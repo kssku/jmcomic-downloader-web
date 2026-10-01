@@ -26,7 +26,9 @@ pub struct AuthConfig {
     pub token: Arc<str>,
     /// Basic Auth 的用户名。默认 `admin`。
     pub username: Arc<str>,
-    /// 是否关闭认证。由 `JM_AUTH_DISABLED` 控制，为 true 时所有请求直接放行。
+    /// 是否关闭认证。默认 **true**（纯 API 后台，无需认证）。
+    ///
+    /// 如需开启认证，显式设置 `JM_AUTH_DISABLED=false`。
     pub disabled: bool,
 }
 
@@ -43,10 +45,13 @@ impl AuthConfig {
         let username =
             std::env::var("JM_AUTH_USER").unwrap_or_else(|_| String::from("admin"));
 
-        // JM_AUTH_DISABLED=true/1 时关闭认证，所有请求直接放行。
-        let disabled = matches!(
+        // 纯 API 后台：认证**默认关闭**。
+        //
+        // 只有显式设置 `JM_AUTH_DISABLED=false` / `0` 时才开启认证，
+        // 这样在 NAS 上跑容器不需要额外配环境变量，调用方直接打 API。
+        let disabled = !matches!(
             std::env::var("JM_AUTH_DISABLED").as_deref(),
-            Ok("true") | Ok("1") | Ok("TRUE") | Ok("True")
+            Ok("false") | Ok("0") | Ok("FALSE") | Ok("False")
         );
 
         (

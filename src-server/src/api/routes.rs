@@ -1,4 +1,4 @@
-﻿//! REST 路由。把 `api::commands` 里的业务函数接到 HTTP 端点上。
+//! REST 路由。把 `api::commands` 里的业务函数接到 HTTP 端点上。
 //!
 //! 路径设计原则：与原前端 `bindings.ts` 里的命令名一一对应，
 //! 这样前端数据层只需要把 `commands.xxx(args)` 换成 `api.post("/api/xxx", args)`，
@@ -17,8 +17,7 @@ use crate::config::Config;
 use crate::context::AppContext;
 use crate::errors::CommandError;
 use crate::events::DownloadTaskEvent;
-use crate::responses::GetUserProfileRespData;
-use crate::types::{Comic, SearchResult, SearchSort};
+use crate::types::Comic;
 
 /// 路由共享状态。
 #[derive(Clone)]
@@ -42,18 +41,14 @@ pub fn router(app: AppContext, auth: AuthConfig) -> Router {
         .route("/health", get(health))
         .route("/auth/check", get(auth_check));
 
-    // 需要认证的端点
+    // 需要认证的端点（纯 API 后台：认证默认关闭）
+    //
+    // 只保留「配置 + 下载 + 任务查询」三类。原前端的
+    // `/server/info`、`/login`、`/user/profile`、`/search`、`/comic*`
+    // 已随去前端一并删除——下载参数走 `/config`，选本走 `/download/*`。
     let protected = Router::new()
         // ── 配置 ──────────────────────────────────────────
         .route("/config", get(get_config).post(save_config))
-        .route("/server/info", get(server_info).post(post_server_info))
-        // ── 登录 ──────────────────────────────────────────
-        .route("/login", post(login))
-        .route("/user/profile", get(user_profile).post(post_user_profile))
-        // ── 搜索 / 详情 / 收藏夹 ─────────────────────────
-        .route("/search", get(search_comic).post(post_search))
-        .route("/comic/:comic_id", get(get_comic))
-        .route("/comic", post(post_comic))
         // ── 下载任务 ──────────────────────────────────────
         .route("/download/task", post(create_download_task))
         .route("/download/task/:chapter_id/pause", post(pause_download_task))
@@ -83,15 +78,13 @@ pub fn router(app: AppContext, auth: AuthConfig) -> Router {
             get(get_task).delete(delete_task),
         )
         .route("/tasks/:chapter_id/retry", post(retry_task))
-
-    protected
-        .merge(public)
         .route("/ws", get(ws::handler))
         .layer(axum::middleware::from_fn_with_state(
             auth.clone(),
             require_auth,
-        ))
-        .with_state(state)
+        ));
+
+    protected.merge(public).with_state(state)
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -123,105 +116,8 @@ async fn save_config(
     Ok(Json(()))
 }
 
-async fn server_info(State(state): State<AppState>) -> Json<serde_json::Value> {
-    Json(commands::get_server_info(&state.app))
-}
-
-/// 前端走的是 `POST /api/server/info` + `{}`。
-async fn post_server_info(State(state): State<AppState>) -> Json<serde_json::Value> {
-    Json(commands::get_server_info(&state.app))
-}
-
 // ════════════════════════════════════════════════════════════════
-// 登录
-// ════════════════════════════════════════════════════════════════
-
-#[derive(Deserialize)]
-struct LoginRequest {
-    /// jm 登录用用户名。保留 `email` 作为别名，兼容旧前端与既有脚本。
-    #[serde(alias = "email")]
-    username: String,
-    password: String,
-}
-
-async fn login(
-    State(state): State<AppState>,
-    Json(req): Json<LoginRequest>,
-) -> Result<Json<String>, ApiError> {
-    // jm 登录成功后返回的是用户名，并非可当 Authorization 用的 token。
-    let username = commands::login(&state.app, req.username, req.password)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(Json(username))
-}
-
-async fn user_profile(
-    State(state): State<AppState>,
-) -> Result<Json<GetUserProfileRespData>, ApiError> {
-    let profile = commands::get_user_profile(&state.app)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(Json(profile))
-}
-
-/// 前端走的是 `POST /api/user/profile` + `{}`。
-async fn post_user_profile(
-    State(state): State<AppState>,
-) -> Result<Json<GetUserProfileRespData>, ApiError> {
-    user_profile(State(state)).await
-}
-
-// ════════════════════════════════════════════════════════════════
-// 搜索 / 详情 / 收藏夹
-// ════════════════════════════════════════════════════════════════
-
-#[derive(Deserialize)]
-struct SearchQuery {
-    keyword: String,
-    sort: SearchSort,
-    page: i32,
-    #[serde(default)]
-    categories: Vec<String>,
-}
-
-async fn search_comic(
-    State(state): State<AppState>,
-    Query(q): Query<SearchQuery>,
-) -> Result<Json<SearchResult>, ApiError> {
-    let result =
-        commands::search_comic(&state.app, q.keyword, q.sort, q.page, q.categories).await?;
-    Ok(Json(result))
-}
-
-/// 前端走的是 `POST /api/search` + `{ keyword, sort, page, categories }`。
-async fn post_search(
-    State(state): State<AppState>,
-    Json(q): Json<SearchQuery>,
-) -> Result<Json<SearchResult>, ApiError> {
-    let result =
-        commands::search_comic(&state.app, q.keyword, q.sort, q.page, q.categories).await?;
-    Ok(Json(result))
-}
-
-async fn get_comic(
-    State(state): State<AppState>,
-    Path(comic_id): Path<String>,
-) -> Result<Json<Comic>, ApiError> {
-    let comic = commands::get_comic(&state.app, comic_id).await?;
-    Ok(Json(comic))
-}
-
-/// 前端走的是 `POST /api/comic` + `{ comicId }`，这里做一层适配。
-async fn post_comic(
-    State(state): State<AppState>,
-    Json(req): Json<ComicIdRequest>,
-) -> Result<Json<Comic>, ApiError> {
-    let comic = commands::get_comic(&state.app, req.comic_id).await?;
-    Ok(Json(comic))
-}
-
-// ════════════════════════════════════════════════════════════════
-// 下载任务
+// 下载任务（纯 API 后台的核心）
 // ════════════════════════════════════════════════════════════════
 
 #[derive(Deserialize)]
@@ -307,15 +203,24 @@ async fn list_download_tasks(
 }
 
 // ════════════════════════════════════════════════════════════════
-// 字段同步
+// 任务查询（Step 4：青龙契约对齐）
 // ════════════════════════════════════════════════════════════════
 
-/// 前端把 comic 包在 `{ comic }` 里发过来，所以这里需要一层 wrapper。
-#[derive(Deserialize)]
-struct ComicWrapper<T> {
-    comic: T,
+/// `GET /api/tasks` 的分页与过滤参数。
+///
+/// 全部可选：不带任何参数时返回最近 100 条。
+#[derive(Deserialize, Default)]
+struct TasksQuery {
+    /// 任务状态过滤。空字符串等同不过滤。
+    state: Option<String>,
+    /// 只取某个漫画下的章节。
+    #[serde(rename = "comicId", alias = "comic_id")]
+    comic_id: Option<String>,
+    /// 增量拉取游标：只返回 `updated_at >= since` 的记录（Unix 秒）。
+    since: Option<i64>,
+    limit: Option<i64>,
+    offset: Option<i64>,
 }
-
 
 async fn query_tasks(
     State(state): State<AppState>,
