@@ -18,7 +18,7 @@ use crate::context::AppContext;
 use crate::errors::CommandError;
 use crate::events::DownloadTaskEvent;
 use crate::responses::GetUserProfileRespData;
-use crate::types::{Comic, ComicInSearch, SearchResult, SearchSort};
+use crate::types::{Comic, SearchResult, SearchSort};
 
 /// 路由共享状态。
 #[derive(Clone)]
@@ -83,12 +83,6 @@ pub fn router(app: AppContext, auth: AuthConfig) -> Router {
             get(get_task).delete(delete_task),
         )
         .route("/tasks/:chapter_id/retry", post(retry_task))
-        // ── 字段同步 ──────────────────────────────────────
-        .route("/sync/comic", post(sync_comic))
-        .route("/sync/comic-in-search", post(sync_comic_in_search))
-        // ── 日志 ──────────────────────────────────────────
-        .route("/logs/size", get(get_logs_dir_size).post(post_logs_dir_size))
-        .route("/logs", get(get_logs).post(post_logs));
 
     protected
         .merge(public)
@@ -322,42 +316,6 @@ struct ComicWrapper<T> {
     comic: T,
 }
 
-async fn sync_comic(
-    State(state): State<AppState>,
-    Json(req): Json<ComicWrapper<Comic>>,
-) -> Result<Json<Comic>, ApiError> {
-    let synced = commands::get_synced_comic(&state.app, req.comic)?;
-    Ok(Json(synced))
-}
-
-
-async fn sync_comic_in_search(
-    State(state): State<AppState>,
-    Json(req): Json<ComicWrapper<ComicInSearch>>,
-) -> Result<Json<ComicInSearch>, ApiError> {
-    let synced = commands::get_synced_comic_in_search(&state.app, req.comic)?;
-    Ok(Json(synced))
-}
-
-// ════════════════════════════════════════════════════════════════
-// 任务查询（Step 4：青龙契约对齐）
-// ════════════════════════════════════════════════════════════════
-
-/// `GET /api/tasks` 的分页与过滤参数。
-///
-/// 全部可选：不带任何参数时返回最近 100 条。
-#[derive(Deserialize, Default)]
-struct TasksQuery {
-    /// 任务状态过滤。空字符串等同不过滤。
-    state: Option<String>,
-    /// 只取某个漫画下的章节。
-    #[serde(rename = "comicId", alias = "comic_id")]
-    comic_id: Option<String>,
-    /// 增量拉取游标：只返回 `updated_at >= since` 的记录（Unix 秒）。
-    since: Option<i64>,
-    limit: Option<i64>,
-    offset: Option<i64>,
-}
 
 async fn query_tasks(
     State(state): State<AppState>,
@@ -450,95 +408,4 @@ async fn delete_task(
 // ════════════════════════════════════════════════════════════════
 // 日志
 // ════════════════════════════════════════════════════════════════
-
-async fn get_logs_dir_size(State(state): State<AppState>) -> Result<Json<u64>, ApiError> {
-    let app = state.app.clone();
-    let size = tokio::task::spawn_blocking(move || commands::get_logs_dir_size(&app))
-        .await
-        .map_err(|err| ApiError(CommandError::from("获取日志目录大小失败", err)))??;
-    Ok(Json(size))
-}
-
-/// 前端走的是 `POST /api/logs/size` + `{}`。
-async fn post_logs_dir_size(State(state): State<AppState>) -> Result<Json<u64>, ApiError> {
-    get_logs_dir_size(State(state)).await
-}
-
-#[derive(Deserialize)]
-struct LogsQuery {
-    /// 只读最后 N 行，默认 500。
-    #[serde(default = "default_tail")]
-    tail: usize,
-}
-
-fn default_tail() -> usize {
-    500
-}
-
-/// 前端走的是 `POST /api/logs` + `{ tail }`。
-async fn post_logs(
-    State(state): State<AppState>,
-    Json(q): Json<LogsQuery>,
-) -> Result<Json<Vec<String>>, ApiError> {
-    let logs_dir = state.app.paths().logs_dir();
-    let lines = tokio::task::spawn_blocking(move || read_log_tail(&logs_dir, q.tail))
-        .await
-        .map_err(|err| ApiError(CommandError::from("读取日志失败", err)))?
-        .map_err(|err| ApiError(CommandError::from("读取日志失败", err)))?;
-    Ok(Json(lines))
-}
-
-/// 读取日志文件尾部若干行，用于网页日志面板的初始加载。
-/// 后续增量日志通过 WebSocket 的 `log-event` 推送。
-async fn get_logs(
-    State(state): State<AppState>,
-    Query(q): Query<LogsQuery>,
-) -> Result<Json<Vec<String>>, ApiError> {
-    let logs_dir = state.app.paths().logs_dir();
-    let app = state.app.clone();
-    let lines = tokio::task::spawn_blocking(move || read_log_tail(&logs_dir, q.tail))
-        .await
-        .map_err(|err| ApiError(CommandError::from("读取日志失败", err)))?
-        .map_err(|err| ApiError(CommandError::from("读取日志失败", err)))?;
-
-    let _ = &app;
-    Ok(Json(lines))
-}
-
-/// 找出日志目录里最新的 `.log` 文件，返回它最后 `tail` 行。
-fn read_log_tail(logs_dir: &std::path::Path, tail: usize) -> anyhow::Result<Vec<String>> {
-    use anyhow::Context as _;
-
-    if !logs_dir.exists() {
-        return Ok(Vec::new());
-    }
-
-    // 找最新的 .log 文件
-    let mut newest: Option<(std::path::PathBuf, std::time::SystemTime)> = None;
-    for entry in std::fs::read_dir(logs_dir)
-        .with_context(|| format!("读取日志目录`{}`失败", logs_dir.display()))?
-        .filter_map(Result::ok)
-    {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("log") {
-            continue;
-        }
-        let Ok(modified) = entry.metadata().and_then(|m| m.modified()) else {
-            continue;
-        };
-        if newest.as_ref().is_none_or(|(_, t)| modified > *t) {
-            newest = Some((path, modified));
-        }
-    }
-
-    let Some((path, _)) = newest else {
-        return Ok(Vec::new());
-    };
-
-    let content = std::fs::read_to_string(&path)
-        .with_context(|| format!("读取`{}`失败", path.display()))?;
-    let all: Vec<&str> = content.lines().collect();
-    let start = all.len().saturating_sub(tail);
-    Ok(all[start..].iter().map(|s| (*s).to_string()).collect())
-}
 

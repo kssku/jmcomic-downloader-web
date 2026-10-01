@@ -1,4 +1,6 @@
-# syntax=docker/dockerfile:1
+# syntax 行已禁用：飞牛镜像源对 dockerfile 前端返回 401，
+# 且本 Dockerfile 未使用 BuildKit 专有语法（唯一的 --mount 在已禁用的 web 阶段）。
+# # syntax=docker/dockerfile:1
 
 # ════════════════════════════════════════════════════════════════════
 #  jmcomic-server —— 禁漫漫画下载器的 Web 版（NAS / Docker 部署）
@@ -25,44 +27,47 @@ ARG HTTP_PROXY=""
 ARG HTTPS_PROXY=""
 
 
-# ── 阶段 1：前端 ────────────────────────────────────────────────────
-FROM node:22-bookworm-slim AS web
+# ── 阶段 1：前端（已禁用 —— 纯 API 模式，不构建 Vue）──────────────────
+# 如需恢复前端：取消下面整块的注释，并把 runtime 阶段的
+# `# 纯 API 模式：不拷贝前端 dist（静态目录留空，由 JM_STATIC_DIR 指向空目录）` 一起恢复。
+#
+# FROM node:22-bookworm-slim AS web
 
 # 空值是无害的：未传 --build-arg 时，这些变量为空串，
 # pnpm / npm 会按「未配置代理」正常直连。
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ENV HTTP_PROXY=$HTTP_PROXY \
-    HTTPS_PROXY=$HTTPS_PROXY \
-    http_proxy=$HTTP_PROXY \
-    https_proxy=$HTTPS_PROXY
+# ARG HTTP_PROXY
+# ARG HTTPS_PROXY
+# ENV HTTP_PROXY=$HTTP_PROXY \
+#     HTTPS_PROXY=$HTTPS_PROXY \
+#     http_proxy=$HTTP_PROXY \
+#     https_proxy=$HTTPS_PROXY
 
-ENV PNPM_HOME=/pnpm \
-    PATH=/pnpm:$PATH \
-    CI=1
+# ENV PNPM_HOME=/pnpm \
+#     PATH=/pnpm:$PATH \
+#     CI=1
 
 # PNPM_HOME 必须真实存在：corepack 的 shim 要写进去，
 # 后面 --store-dir=/pnpm/store 也依赖它。
-RUN mkdir -p /pnpm/store
+# RUN mkdir -p /pnpm/store
 
 # corepack 按 package.json 的 packageManager 字段自动装 pnpm@9.5.0
-RUN corepack enable
+# RUN corepack enable
 
-WORKDIR /build
+# WORKDIR /build
 
 # 先只拷依赖清单，让依赖层可以单独缓存
-COPY package.json pnpm-lock.yaml ./
-RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
-    pnpm install --frozen-lockfile --store-dir=/pnpm/store
+# COPY package.json pnpm-lock.yaml ./
+# RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+#     pnpm install --frozen-lockfile --store-dir=/pnpm/store
 
 # 再拷源码。这里显式列出，避免 .dockerignore 之外的意外文件影响缓存
-COPY index.html vite.config.ts tsconfig.json tsconfig.node.json uno.config.ts ./
-COPY public ./public
-COPY src ./src
+# COPY index.html vite.config.ts tsconfig.json tsconfig.node.json uno.config.ts ./
+# COPY public ./public
+# COPY src ./src
 
 # 只做 vite build：类型检查（vue-tsc）在 CI / 本地做，
 # 镜像构建阶段没必要为它多花一份内存和时间。
-RUN pnpm exec vite build
+# RUN pnpm exec vite build
 
 
 # ── 阶段 2：后端 ────────────────────────────────────────────────────
@@ -133,7 +138,7 @@ RUN groupadd -g 1000 jm \
 WORKDIR /app
 
 COPY --from=server /build/target/release/jmcomic-server /app/jmcomic-server
-COPY --from=web /build/dist /app/dist
+# 纯 API 模式：不拷贝前端 dist（静态目录留空，由 JM_STATIC_DIR 指向空目录）
 
 # 数据目录：配置、日志、漫画全部落在这里，必须挂 volume
 #
@@ -147,15 +152,15 @@ COPY --from=web /build/dist /app/dist
 #   chown 只改归属、不改权限位，所以必须补一条 chmod。
 #
 # a+rX：所有文件加可读；目录额外加可进入（X 只对目录和已有可执行位的文件生效）
-RUN mkdir -p /data \
+RUN mkdir -p /data /app/empty-static \
     && chown -R jm:jm /app /data \
-    && chmod -R a+rX /app/dist /app/jmcomic-server
+    && chmod -R a+rX /app/empty-static /app/jmcomic-server
 VOLUME ["/data"]
 
 USER jm
 
 ENV JM_DATA_DIR=/data \
-    JM_STATIC_DIR=/app/dist \
+    JM_STATIC_DIR=/app/empty-static \
     JM_BIND=0.0.0.0 \
     JM_PORT=8080 \
     TZ=Asia/Shanghai

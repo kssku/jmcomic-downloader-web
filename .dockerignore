@@ -39,3 +39,6 @@ LICENSE
 
 # 锁文件：只保留 pnpm-lock.yaml，避免 npm/pnpm 混用导致依赖树不一致
 package-lock.json
+# 纯 API 改造时的备份文件，不该进构建上下文
+*.bak-*
+*.bak-*
