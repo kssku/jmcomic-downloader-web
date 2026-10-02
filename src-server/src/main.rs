@@ -17,6 +17,8 @@
 use std::net::SocketAddr;
 
 use anyhow::Context as _;
+use axum::response::Html;
+use axum::routing::get;
 use axum::Router;
 use jmcomic_server::api::routes;
 use jmcomic_server::auth::AuthConfig;
@@ -61,16 +63,23 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// 组装全部路由（纯 API 后台）。
+/// 组装全部路由。
 ///
 /// 层级顺序（从外到内）：
 /// 1. `TraceLayer` —— 请求日志。
 /// 2. `/api/*` 路由（内部自带认证中间件，默认关闭）。
+/// 3. `/` —— 单文件控制台（编译期嵌入，无外部静态目录）。
 fn build_router(app: AppContext, auth: AuthConfig) -> Router {
     // `routes::router` 已经带好 state 与认证中间件（含 `/ws`）。
     let api = Router::new().nest("/api", routes::router(app, auth));
 
-    api.layer(TraceLayer::new_for_http())
+    api.route("/", get(console))
+        .layer(TraceLayer::new_for_http())
+}
+
+/// 单文件控制台。直接嵌进二进制，容器里不需要额外挂载目录。
+async fn console() -> Html<&'static str> {
+    Html(include_str!("../static/index.html"))
 }
 
 /// 监听地址，来自 `JM_BIND` / `JM_PORT`。

@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>jmcomic 下载后台</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #0f1117; color: #e6e8ee; font-size: 14px; line-height: 1.5;
+  }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 20px; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+  h1 { font-size: 18px; font-weight: 600; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #6b7280; }
+  .dot.on { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+  .dot.off { background: #ef4444; }
+  .muted { color: #8b93a7; font-size: 12px; }
+  .grid { display: grid; grid-template-columns: 380px 1fr; gap: 18px; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: #171a22; border: 1px solid #232733; border-radius: 10px; padding: 16px; margin-bottom: 18px; }
+  .card h2 { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #c8cddb; }
+  textarea, input[type=text], input[type=number] {
+    width: 100%; background: #0f1117; border: 1px solid #2a2f3d; color: #e6e8ee;
+    border-radius: 6px; padding: 8px 10px; font-family: inherit; font-size: 13px; resize: vertical;
+  }
+  textarea { min-height: 120px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  textarea:focus, input:focus { outline: none; border-color: #3b82f6; }
+  button {
+    background: #3b82f6; color: #fff; border: none; border-radius: 6px; padding: 8px 14px;
+    font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit;
+  }
+  button:hover { background: #2563eb; }
+  button:disabled { background: #2a2f3d; color: #6b7280; cursor: not-allowed; }
+  button.ghost { background: transparent; border: 1px solid #2a2f3d; color: #c8cddb; }
+  button.ghost:hover { background: #1f2430; }
+  button.danger { background: #dc2626; }
+  button.danger:hover { background: #b91c1c; }
+  button.sm { padding: 4px 9px; font-size: 12px; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row.wrap-row { flex-wrap: wrap; }
+  .spacer { flex: 1; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(78px, 1fr)); gap: 8px; }
+  .stat { background: #0f1117; border: 1px solid #232733; border-radius: 6px; padding: 8px; text-align: center; }
+  .stat .n { font-size: 18px; font-weight: 600; }
+  .stat .l { font-size: 11px; color: #8b93a7; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: #8b93a7; font-weight: 500; font-size: 12px; padding: 6px 8px; border-bottom: 1px solid #232733; white-space: nowrap; }
+  td { padding: 7px 8px; border-bottom: 1px solid #1c2029; vertical-align: middle; }
+  tr:hover td { background: #1a1e28; }
+  .bar { width: 70px; height: 5px; background: #2a2f3d; border-radius: 3px; overflow: hidden; display: inline-block; vertical-align: middle; }
+  .bar > i { display: block; height: 100%; background: #3b82f6; }
+  .bar > i.done { background: #22c55e; }
+  .bar > i.fail { background: #ef4444; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 500; }
+  .tag.pending { background: #374151; color: #d1d5db; }
+  .tag.downloading { background: #1e3a8a; color: #93c5fd; }
+  .tag.paused { background: #78350f; color: #fcd34d; }
+  .tag.cancelled { background: #3f3f46; color: #a1a1aa; }
+  .tag.completed { background: #14532d; color: #86efac; }
+  .tag.failed { background: #7f1d1d; color: #fca5a5; }
+  .ellip { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .log { background: #0b0d12; border: 1px solid #232733; border-radius: 6px; padding: 10px;
+         font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px;
+         max-height: 190px; overflow-y: auto; color: #9aa3b5; }
+  .log .ok { color: #86efac; }
+  .log .err { color: #fca5a5; }
+  .log .ts { color: #4b5563; margin-right: 6px; }
+  .hint { font-size: 12px; color: #6b7280; margin-top: 6px; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid #232733; }
+  .tabs button { background: transparent; color: #8b93a7; border: none; border-bottom: 2px solid transparent;
+                 border-radius: 0; padding: 7px 12px; }
+  .tabs button:hover { color: #c8cddb; background: transparent; }
+  .tabs button.active { color: #e6e8ee; border-bottom-color: #3b82f6; }
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: 12px; color: #8b93a7; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="dot" id="ws-dot"></span>
+    <h1>jmcomic 下载后台</h1>
+    <span class="muted" id="ws-text">连接中…</span>
+    <div class="spacer"></div>
+    <button class="ghost sm" onclick="refreshAll()">刷新</button>
+  </header>
+
+  <div class="grid">
+    <!-- ══ 左列 ══ -->
+    <div>
+      <div class="card">
+        <h2>批量投递（按漫画 ID）</h2>
+        <textarea id="batch-ids" placeholder="每行一个漫画 ID，也可用逗号/空格分隔&#10;1461316&#10;1469067&#10;1435947"></textarea>
+        <div class="hint">留空 chapterId 则下载整本未下载章节</div>
+        <div class="row" style="margin-top:10px">
+          <input type="text" id="batch-chapter" placeholder="chapterId（可选，全部统一指定）" />
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button id="btn-batch" onclick="submitBatch()">开始批量投递</button>
+          <button class="ghost" onclick="document.getElementById('batch-ids').value=''">清空</button>
+          <div class="spacer"></div>
+          <span class="muted" id="batch-count"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>单个投递</h2>
+        <div class="field">
+          <label>漫画 ID</label>
+          <input type="text" id="one-comic" placeholder="1461316" />
+        </div>
+        <div class="field">
+          <label>章节 ID（可选）</label>
+          <input type="text" id="one-chapter" placeholder="留空下载整本" />
+        </div>
+        <button onclick="submitOne()">投递</button>
+      </div>
+
+      <div class="card">
+        <h2>任务统计</h2>
+        <div class="stats" id="stats"></div>
+        <div class="row" style="margin-top:12px">
+          <button class="ghost sm" onclick="purgeTasks()">清理终态任务</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>运行配置</h2>
+        <div id="config-fields"></div>
+        <div class="row" style="margin-top:10px">
+          <button onclick="saveConfig()">保存配置</button>
+          <button class="ghost" onclick="loadConfig()">重新载入</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ 右列 ══ -->
+    <div>
+      <div class="card">
+        <div class="tabs">
+          <button class="active" data-state="" onclick="setFilter(this, '')">全部</button>
+          <button data-state="downloading" onclick="setFilter(this, 'downloading')">下载中</button>
+          <button data-state="pending" onclick="setFilter(this, 'pending')">等待</button>
+          <button data-state="paused" onclick="setFilter(this, 'paused')">暂停</button>
+          <button data-state="completed" onclick="setFilter(this, 'completed')">已完成</button>
+          <button data-state="failed" onclick="setFilter(this, 'failed')">失败</button>
+          <div class="spacer"></div>
+          <input type="text" id="filter-comic" placeholder="按漫画 ID 过滤" style="width:130px" oninput="loadTasks()" />
+        </div>
+        <div style="overflow-x:auto">
+          <table>
+            <thead>
+              <tr>
+                <th>漫画</th>
+                <th>章节</th>
+                <th>状态</th>
+                <th>进度</th>
+                <th>重试</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="task-rows"><tr><td colspan="6" class="muted" style="padding:20px;text-align:center">加载中…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <span class="muted" id="task-total"></span>
+          <div class="spacer"></div>
+          <button class="ghost sm" onclick="pagePrev()">上一页</button>
+          <span class="muted" id="page-info">1</span>
+          <button class="ghost sm" onclick="pageNext()">下一页</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>事件日志</h2>
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+const PAGE_SIZE = 50;
+let ws = null;
+let tasks = [];
+let filterState = '';
+let pageOffset = 0;
+let totalTasks = 0;
+let configObj = null;
+
+// ── 工具 ──────────────────────────────────────────────
+function log(msg, cls = '') {
+  const el = document.getElementById('log');
+  const t = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  const div = document.createElement('div');
+  div.innerHTML = `<span class="ts">${t}</span><span class="${cls}">${escapeHtml(msg)}</span>`;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+  while (el.childElementCount > 300) el.removeChild(el.firstChild);
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+async function api(method, path, body) {
+  const opt = { method, headers: {} };
+  if (body !== undefined) {
+    opt.headers['Content-Type'] = 'application/json';
+    opt.body = JSON.stringify(body);
+  }
+  const res = await fetch(API + path, opt);
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch (e) { data = text; }
+  if (!res.ok) {
+    const msg = (data && (data.error || data.message)) || res.status + ' ' + res.statusText;
+    throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+  }
+  return data;
+}
+
+// ── 批量投递 ──────────────────────────────────────────
+function parseIds(raw) {
+  return raw.split(/[\n,\s]+/).map(s => s.trim()).filter(s => /^\d+$/.test(s));
+}
+document.getElementById('batch-ids').addEventListener('input', (e) => {
+  const ids = parseIds(e.target.value);
+  const uniq = [...new Set(ids)];
+  document.getElementById('batch-count').textContent = uniq.length ? `${uniq.length} 个 ID` : '';
+});
+
+async function submitBatch() {
+  const ids = [...new Set(parseIds(document.getElementById('batch-ids').value))];
+  if (ids.length === 0) { log('没有解析到有效漫画 ID', 'err'); return; }
+  const chapterId = document.getElementById('batch-chapter').value.trim() || null;
+  const btn = document.getElementById('btn-batch');
+  btn.disabled = true;
+  log(`开始批量投递 ${ids.length} 个漫画…`);
+
+  let ok = 0, fail = 0, created = 0;
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i];
+    try {
+      const body = { comicId: id };
+      if (chapterId) body.chapterId = chapterId;
+      const r = await api('POST', '/api/download/by-id', body);
+      created += (r && r.createdCount) || 0;
+      ok++;
+      log(`[${i + 1}/${ids.length}] ${id} → 新建 ${r.createdCount || 0} 章「${r.comicTitle || ''}」`, 'ok');
+    } catch (e) {
+      fail++;
+      log(`[${i + 1}/${ids.length}] ${id} → 失败：${e.message}`, 'err');
+    }
+    await new Promise(r => setTimeout(r, 250));
+  }
+  btn.disabled = false;
+  log(`批量完成：成功 ${ok} / 失败 ${fail}，共新建 ${created} 个章节任务`, ok > 0 ? 'ok' : 'err');
+  loadTasks();
+  loadStats();
+}
+
+async function submitOne() {
+  const comicId = document.getElementById('one-comic').value.trim();
+  if (!comicId) { log('请填漫画 ID', 'err'); return; }
+  const chapterId = document.getElementById('one-chapter').value.trim() || null;
+  try {
+    const body = { comicId };
+    if (chapterId) body.chapterId = chapterId;
+    const r = await api('POST', '/api/download/by-id', body);
+    log(`投递成功：${r.comicTitle || comicId}，新建 ${r.createdCount || 0} 章`, 'ok');
+    loadTasks();
+    loadStats();
+  } catch (e) {
+    log(`投递失败：${e.message}`, 'err');
+  }
+}
+
+// ── 任务列表 ──────────────────────────────────────────
+function setFilter(btn, state) {
+  filterState = state;
+  document.querySelectorAll('.tabs button[data-state]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  pageOffset = 0;
+  loadTasks();
+}
+
+async function loadTasks() {
+  const params = new URLSearchParams();
+  if (filterState) params.set('state', filterState);
+  const comicId = document.getElementById('filter-comic').value.trim();
+  if (comicId) params.set('comicId', comicId);
+  params.set('limit', PAGE_SIZE);
+  params.set('offset', pageOffset);
+  try {
+    const r = await api('GET', '/api/tasks?' + params.toString());
+    tasks = r.tasks || [];
+    totalTasks = r.total || 0;
+    renderTasks();
+  } catch (e) {
+    log(`加载任务失败：${e.message}`, 'err');
+  }
+}
+
+function renderTasks() {
+  const tb = document.getElementById('task-rows');
+  if (tasks.length === 0) {
+    tb.innerHTML = '<tr><td colspan="6" class="muted" style="padding:20px;text-align:center">没有任务</td></tr>';
+  } else {
+    tb.innerHTML = tasks.map(t => {
+      const pct = Math.max(0, Math.min(100, t.progress || 0));
+      const barCls = t.state === 'completed' ? 'done' : (t.state === 'failed' ? 'fail' : '');
+      return `<tr>
+        <td class="ellip" title="${escapeHtml(t.comicTitle)}">${escapeHtml(t.comicTitle || t.comicId)}</td>
+        <td class="ellip" title="${escapeHtml(t.chapterTitle)}">${escapeHtml(t.chapterTitle || t.chapterId)}</td>
+        <td><span class="tag ${t.state}">${t.state}</span></td>
+        <td><span class="bar"><i class="${barCls}" style="width:${pct}%"></i></span> <span class="muted">${t.doneImgCount}/${t.totalImgCount}</span></td>
+        <td>${t.retryCount > 0 ? `<span style="color:#fca5a5">${t.retryCount}</span>` : '0'}</td>
+        <td style="white-space:nowrap">
+          ${t.state === 'downloading' ? `<button class="ghost sm" onclick="taskAction('${t.chapterId}','pause')">暂停</button>` : ''}
+          ${t.state === 'paused' ? `<button class="ghost sm" onclick="taskAction('${t.chapterId}','resume')">继续</button>` : ''}
+          ${(t.state === 'failed' || t.state === 'cancelled') ? `<button class="ghost sm" onclick="retryTask('${t.chapterId}')">重试</button>` : ''}
+          ${(t.state === 'downloading' || t.state === 'pending' || t.state === 'paused') ? `<button class="ghost sm" onclick="taskAction('${t.chapterId}','cancel')">取消</button>` : ''}
+          <button class="ghost sm" onclick="deleteTask('${t.chapterId}')">删除</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+  document.getElementById('task-total').textContent = `共 ${totalTasks} 条`;
+  const page = Math.floor(pageOffset / PAGE_SIZE) + 1;
+  document.getElementById('page-info').textContent = `第 ${page} 页`;
+}
+
+function pagePrev() { if (pageOffset >= PAGE_SIZE) { pageOffset -= PAGE_SIZE; loadTasks(); } }
+function pageNext() { if (pageOffset + PAGE_SIZE < totalTasks) { pageOffset += PAGE_SIZE; loadTasks(); } }
+
+async function taskAction(chapterId, action) {
+  try {
+    await api('POST', `/api/download/task/${encodeURIComponent(chapterId)}/${action}`, {});
+    log(`${action} ${chapterId} 成功`, 'ok');
+    loadTasks();
+  } catch (e) { log(`${action} 失败：${e.message}`, 'err'); }
+}
+async function retryTask(chapterId) {
+  try {
+    const r = await api('POST', `/api/tasks/${encodeURIComponent(chapterId)}/retry`, {});
+    log(`重试 ${chapterId}：重置 ${r.resetImgCount} 张，剩 ${r.unfinishedImgCount} 张`, 'ok');
+    loadTasks();
+  } catch (e) { log(`重试失败：${e.message}`, 'err'); }
+}
+async function deleteTask(chapterId) {
+  if (!confirm('确认删除任务 ' + chapterId + '？')) return;
+  try {
+    await api('DELETE', `/api/tasks/${encodeURIComponent(chapterId)}`);
+    log(`已删除 ${chapterId}`, 'ok');
+    loadTasks();
+    loadStats();
+  } catch (e) { log(`删除失败：${e.message}`, 'err'); }
+}
+
+// ── 统计 ──────────────────────────────────────────────
+async function loadStats() {
+  try {
+    const s = await api('GET', '/api/tasks/stats');
+    const items = [
+      ['总任务', s.total], ['等待', s.pending], ['下载中', s.downloading],
+      ['暂停', s.paused], ['完成', s.completed], ['失败', s.failed], ['取消', s.cancelled],
+    ];
+    document.getElementById('stats').innerHTML = items.map(([l, n]) =>
+      `<div class="stat"><div class="n">${n ?? 0}</div><div class="l">${l}</div></div>`).join('');
+  } catch (e) { log(`统计失败：${e.message}`, 'err'); }
+}
+
+async function purgeTasks() {
+  const days = prompt('清理多少天前的终态任务？', '30');
+  if (days === null) return;
+  try {
+    const r = await api('POST', '/api/tasks/purge', { retentionDays: parseInt(days, 10) || 30 });
+    log(`已清理 ${r.removed} 条（保留 ${r.retentionDays} 天）`, 'ok');
+    loadTasks();
+    loadStats();
+  } catch (e) { log(`清理失败：${e.message}`, 'err'); }
+}
+
+// ── 配置 ──────────────────────────────────────────────
+const CONFIG_LABELS = {
+  baseDir: '保存目录', dirFmt: '目录格式', chapterConcurrency: '章节并发',
+  imgConcurrency: '图片并发', imgDownloadIntervalSec: '图片间隔(秒)',
+  imgRetryTimes: '图片重试次数', imgRetryIntervalSec: '重试间隔(秒)',
+  chapterDownloadIntervalSec: '章节间隔(秒)', useCbz: '导出 CBZ',
+};
+async function loadConfig() {
+  try {
+    configObj = await api('GET', '/api/config');
+    const skip = new Set(['token', 'username', 'password']);
+    const entries = Object.entries(configObj).filter(([k, v]) => !skip.has(k) && (typeof v !== 'object' || v === null));
+    document.getElementById('config-fields').innerHTML = entries.map(([k, v]) => {
+      const label = CONFIG_LABELS[k] || k;
+      const type = typeof v === 'number' ? 'number' : (typeof v === 'boolean' ? 'checkbox' : 'text');
+      if (type === 'checkbox') {
+        return `<div class="field"><label><input type="checkbox" data-k="${k}" ${v ? 'checked' : ''} style="width:auto;margin-right:6px" />${label}</label></div>`;
+      }
+      return `<div class="field"><label>${label}</label><input type="${type}" data-k="${k}" value="${v ?? ''}" /></div>`;
+    }).join('');
+    log('配置已载入');
+  } catch (e) { log(`载入配置失败：${e.message}`, 'err'); }
+}
+async function saveConfig() {
+  if (!configObj) return;
+  const next = JSON.parse(JSON.stringify(configObj));
+  document.querySelectorAll('#config-fields [data-k]').forEach(el => {
+    const k = el.dataset.k;
+    if (el.type === 'checkbox') next[k] = el.checked;
+    else if (el.type === 'number') next[k] = el.value === '' ? null : Number(el.value);
+    else next[k] = el.value;
+  });
+  try {
+    await api('POST', '/api/config', next);
+    configObj = next;
+    log('配置已保存（部分项需重启任务生效）', 'ok');
+  } catch (e) { log(`保存失败：${e.message}`, 'err'); }
+}
+
+// ── WebSocket ─────────────────────────────────────────
+function connectWs() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/api/ws`);
+  ws.onopen = () => {
+    document.getElementById('ws-dot').className = 'dot on';
+    document.getElementById('ws-text').textContent = '实时已连接';
+  };
+  ws.onclose = () => {
+    document.getElementById('ws-dot').className = 'dot off';
+    document.getElementById('ws-text').textContent = '已断开，3 秒后重连';
+    setTimeout(connectWs, 3000);
+  };
+  ws.onerror = () => { document.getElementById('ws-dot').className = 'dot off'; };
+  ws.onmessage = (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch (e) { return; }
+    const topic = msg.topic;
+    const payload = msg.payload;
+    if (topic === 'task-snapshot-event' && Array.isArray(payload)) {
+      tasks = payload;
+      renderTasks();
+      return;
+    }
+    if (topic === 'download-task-event') {
+      applyTaskEvent(payload);
+      return;
+    }
+  };
+}
+
+function applyTaskEvent(ev) {
+  if (!ev || !ev.event) return;
+  const d = ev.data || {};
+  if (ev.event === 'Create') {
+    const ch = d.chapterInfo || {};
+    log(`新建任务：${d.comic?.title || ''} / ${ch.title || ch.chapterId || ''}`);
+    loadStats();
+    loadTasks();
+    return;
+  }
+  if (ev.event === 'Update') {
+    const idx = tasks.findIndex(t => t.chapterId === d.chapterId);
+    if (idx >= 0) {
+      tasks[idx].state = d.state;
+      tasks[idx].doneImgCount = d.downloadedImgCount;
+      tasks[idx].totalImgCount = d.totalImgCount;
+      if (d.retryCount !== undefined) tasks[idx].retryCount = d.retryCount;
+      tasks[idx].progress = d.totalImgCount > 0
+        ? Math.round((d.downloadedImgCount / d.totalImgCount) * 1000) / 10 : 0;
+      renderTasks();
+    }
+    if (d.state === 'completed' || d.state === 'failed') {
+      log(`任务 ${d.state}：${d.chapterId}（${d.downloadedImgCount}/${d.totalImgCount}）`,
+          d.state === 'completed' ? 'ok' : 'err');
+      loadStats();
+    }
+  }
+}
+
+// ── 初始化 ────────────────────────────────────────────
+async function refreshAll() {
+  await Promise.all([loadTasks(), loadStats()]);
+}
+loadConfig();
+refreshAll();
+connectWs();
+setInterval(loadStats, 15000);
+</script>
+</body>
+</html>

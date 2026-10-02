@@ -113,7 +113,11 @@ RUN mkdir -p src \
 # 产出一个能跑但没有任何业务逻辑的二进制。
 # touch 把所有源码 mtime 提到当前时刻，确保真实代码一定被重新编译。
 COPY src-server/src ./src
+# 单文件控制台：`main.rs` 用 `include_str!("../static/index.html")` 在编译期
+# 把它嵌进二进制，所以 static 目录必须进构建上下文，且路径与 src 同级。
+COPY src-server/static ./static
 RUN find src -type f -exec touch {} + \
+    && touch static/index.html \
     && cargo build --release \
     && test -x target/release/jmcomic-server
 
