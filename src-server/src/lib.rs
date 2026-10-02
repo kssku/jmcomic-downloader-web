@@ -5,6 +5,8 @@
 
 pub mod api;
 pub mod auth;
+pub mod catalog;
+pub mod catalog_sync;
 pub mod config;
 pub mod context;
 pub mod download_manager;

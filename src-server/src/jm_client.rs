@@ -46,6 +46,20 @@ pub const IMAGE_DOMAIN: &str = "cdn-msp2.jmapiproxy2.cc";
 const API_REQUEST_TIMEOUT_SECS: u64 = 60;
 const API_RETRY_TOTAL_SECS: u64 = 30;
 
+/// 图片单次请求的总超时。图片 CDN 正常响应在 1 秒内；
+/// 卡住的多半是撞上了不可达的 IPv6 地址（`cdn-msp2` 走 Cloudflare，
+/// 会同时返回 A 与 AAAA 记录），拖到 20 秒以上毫无意义。
+const IMG_REQUEST_TIMEOUT_SECS: u64 = 20;
+
+/// 建立 TCP 连接的超时。这是本次故障的关键：图片 CDN 的 AAAA 记录
+/// 在部分网络下不可达，若不设连接超时，happy-eyeballs 回退到 IPv4
+/// 前会长时间挂起，表现为「一张图都下不来」。
+const CONNECT_TIMEOUT_SECS: u64 = 8;
+
+/// 空闲连接在池中的存活时间。设短一些，避免复用到已被中间设备
+/// 静默丢弃的连接——那会表现为随机性的请求超时。
+const POOL_IDLE_TIMEOUT_SECS: u64 = 15;
+
 #[derive(Debug, Clone, PartialEq)]
 enum ApiPath {
     Login,
@@ -397,7 +411,10 @@ impl JmClient {
 }
 
 pub fn create_api_client(app: &AppContext, jar: &Arc<Jar>) -> ClientWithMiddleware {
-    let builder = reqwest::ClientBuilder::new().cookie_provider(jar.clone());
+    let builder = reqwest::ClientBuilder::new()
+        .cookie_provider(jar.clone())
+        .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
+        .pool_idle_timeout(Duration::from_secs(POOL_IDLE_TIMEOUT_SECS));
     let builder = builder.set_proxy(app, "jm_api_client");
     let retry_policy = ExponentialBackoff::builder()
         .base(1)
@@ -411,7 +428,12 @@ pub fn create_api_client(app: &AppContext, jar: &Arc<Jar>) -> ClientWithMiddlewa
 }
 
 pub fn create_img_client(app: &AppContext) -> ClientWithMiddleware {
-    let builder = reqwest::ClientBuilder::new();
+    let builder = reqwest::ClientBuilder::new()
+        // 总超时必须设：没有它，撞上不可达地址的请求会无限挂起，
+        // 占住下载并发额度，整条队列都停滞。
+        .timeout(Duration::from_secs(IMG_REQUEST_TIMEOUT_SECS))
+        .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
+        .pool_idle_timeout(Duration::from_secs(POOL_IDLE_TIMEOUT_SECS));
     let builder = builder.set_proxy(app, "jm_img_client");
     let retry_policy = ExponentialBackoff::builder().build_with_max_retries(3);
     reqwest_middleware::ClientBuilder::new(builder.build().unwrap())

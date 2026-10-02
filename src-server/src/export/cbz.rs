@@ -39,10 +39,7 @@ use std::{
 use anyhow::{anyhow, Context};
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
 
-use crate::{
-    types::{ChapterInfo, Comic},
-    utils,
-};
+use crate::types::{ChapterInfo, Comic};
 
 /// CBZ 的图片扩展名白名单。非图片文件（`章节元数据.json` 等）一律跳过。
 const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "webp", "bmp", "gif"];
@@ -65,6 +62,12 @@ pub struct ExportResult {
     pub file_size: u64,
     /// 是否覆盖了已存在的 CBZ。
     pub overwritten: bool,
+    /// 该漫画的下载根目录（`漫画下载/{漫画ID}`）。
+    ///
+    /// 回传它是为了让调用方在导出成功后删除原图：删除是**破坏性操作**，
+    /// 由调用方决定做不做，导出函数本身只负责如实报告「图片在哪」。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comic_download_dir: Option<PathBuf>,
 }
 
 /// 把整本漫画合成一个单行本 CBZ。
@@ -73,7 +76,10 @@ pub struct ExportResult {
 /// 这是刻意的选择：单行本的意义是「一次读完」，缺章的单行本会让人
 /// 以为漫画本身不完整。部分导出对阅读体验是负价值。
 ///
-/// 产出路径：`{export_dir}/{漫画名}.cbz`。
+/// 产出路径：`{export_dir}/{漫画ID}.cbz`。
+///
+/// 用漫画 ID 而非漫画名做文件名：漫画名可能含空格、emoji、超长标题，
+/// 也可能被外部工具改名导致「找不到已导出文件」；ID 稳定且唯一。
 pub fn export_comic_cbz(comic: &Comic, export_dir: &Path) -> anyhow::Result<ExportResult> {
     // ── 1. 逐章判定「已下载」，分三类 ────────────────────────────
     //
@@ -169,7 +175,8 @@ pub fn export_comic_cbz(comic: &Comic, export_dir: &Path) -> anyhow::Result<Expo
     std::fs::create_dir_all(export_dir)
         .with_context(|| format!("创建导出目录`{}`失败", export_dir.display()))?;
 
-    let cbz_name = format!("{}.cbz", utils::filename_filter(&comic.name));
+    // 文件名用漫画 ID：稳定、唯一、不含特殊字符，外部工具改名也不影响重导覆盖
+    let cbz_name = format!("{}.cbz", comic.id);
     let cbz_path = export_dir.join(cbz_name);
     let overwritten = cbz_path.exists();
 
@@ -218,6 +225,7 @@ pub fn export_comic_cbz(comic: &Comic, export_dir: &Path) -> anyhow::Result<Expo
         total_chapters: comic.chapter_infos.len(),
         file_size,
         overwritten,
+        comic_download_dir: comic.comic_download_dir.clone(),
     })
 }
 
@@ -321,10 +329,9 @@ fn build_comic_info_xml(comic: &Comic, page_count: usize) -> String {
 
 /// 按漫画 ID 查找已导出的 CBZ 文件。
 ///
-/// 因为文件名是「漫画名.cbz」而非 ID，这里靠遍历导出目录 + 匹配
-/// `{漫画名}.cbz` 来找。导出目录通常不大，遍历成本可接受。
-pub fn find_exported_cbz(export_dir: &Path, comic_name: &str) -> Option<PathBuf> {
-    let cbz_name = format!("{}.cbz", utils::filename_filter(comic_name));
+/// 文件名就是 `{漫画ID}.cbz`，直接拼路径即可，无需遍历导出目录。
+pub fn find_exported_cbz(export_dir: &Path, comic_id: &str) -> Option<PathBuf> {
+    let cbz_name = format!("{comic_id}.cbz");
     let path = export_dir.join(cbz_name);
     path.is_file().then_some(path)
 }

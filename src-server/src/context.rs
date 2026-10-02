@@ -10,6 +10,8 @@ use std::sync::Arc;
 use anyhow::Context as _;
 use parking_lot::RwLock;
 
+use crate::catalog::JmCatalog;
+use crate::catalog_sync::{CatalogSyncState, SharedCatalogSyncState};
 use crate::config::Config;
 use crate::download_manager::DownloadManager;
 use crate::event_bus::EventBus;
@@ -45,6 +47,16 @@ impl Paths {
     pub fn db_path(&self) -> PathBuf {
         self.data_dir.join("jmcomic_server.db")
     }
+
+    /// jm 候选池数据库（爬虫建的 88 万本元数据索引）。
+    ///
+    /// 默认 `/databases/jm.db` —— 这是三端下载器（jm / pica / wnacg）
+    /// 共用的「漫画元数据」卷在容器内的挂载点。用 `JM_CATALOG_DB` 可覆盖。
+    pub fn catalog_db_path(&self) -> PathBuf {
+        std::env::var("JM_CATALOG_DB")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("/databases/jm.db"))
+    }
 }
 
 /// 全局应用上下文。廉价可克隆（内部全是 `Arc`）。
@@ -57,6 +69,10 @@ pub struct AppContext {
     /// 任务持久化。构造阶段就打开——它没有循环依赖，不像
     /// `PicaClient` / `DownloadManager` 那样需要两段式构造。
     store: Store,
+    /// jm 候选池（`/databases/jm.db`）。**可选**：库没挂进来、损坏、
+    /// 无权限时为 `None`，此时下载器的既有功能照常可用，只是不自动补全。
+    catalog: Option<JmCatalog>,
+    catalog_sync: SharedCatalogSyncState,
     events: EventBus,
 }
 
@@ -71,12 +87,34 @@ impl AppContext {
         // 而不是让整个服务起不来。
         let store = Store::open_or_recover(&paths.db_path())?;
 
+        // 候选池打不开**不阻塞启动**——它是增强功能，不是核心依赖。
+        // 失败只记日志，`catalog` 保持 `None`。
+        let catalog = match JmCatalog::open(&paths.catalog_db_path()) {
+            Ok(cat) => {
+                tracing::info!(
+                    path = %cat.path().display(),
+                    "jm 候选池已接入"
+                );
+                Some(cat)
+            }
+            Err(err) => {
+                tracing::warn!(
+                    err_title = "jm 候选池未接入，自动补全不可用",
+                    path = %paths.catalog_db_path().display(),
+                    message = %err
+                );
+                None
+            }
+        };
+
         Ok(Self {
             paths,
             config: Arc::new(RwLock::new(config)),
             jm_client: Arc::new(RwLock::new(None)),
             download_manager: Arc::new(RwLock::new(None)),
             store,
+            catalog,
+            catalog_sync: Arc::new(CatalogSyncState::default()),
             events: EventBus::new(),
         })
     }
@@ -88,6 +126,10 @@ impl AppContext {
 
         let manager = DownloadManager::new(self.clone());
         *self.download_manager.write() = Some(manager);
+
+        // 候选池自动补全调度。`catalog` 为 `None`（库没挂进来）时轮次空转，
+        // 不会报错——这是刻意的，下载器既有功能不能因此受影响。
+        crate::catalog_sync::spawn_scheduler(self.clone());
 
         Ok(())
     }
@@ -118,6 +160,16 @@ impl AppContext {
     /// 取任务持久化层。廉价可克隆（内部是 `Arc`）。
     pub fn store(&self) -> &Store {
         &self.store
+    }
+
+    /// 取 jm 候选池。未接入时为 `None`。
+    pub fn catalog(&self) -> Option<&JmCatalog> {
+        self.catalog.as_ref()
+    }
+
+    /// 取候选池补全的共享状态（运行中标记、轮数、回写计数）。
+    pub fn catalog_sync_state(&self) -> &CatalogSyncState {
+        &self.catalog_sync
     }
 
     /// 取 `PicaClient`。初始化后必然存在。

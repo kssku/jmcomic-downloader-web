@@ -69,6 +69,15 @@ services:
       http_proxy: "${JM_HTTP_PROXY:-}"
       https_proxy: "${JM_HTTPS_PROXY:-}"
 
+      # ── 例外域名：走直连，绕开代理 ─────────────────────────────
+      # 实测（2026-10-02）：mihomo 对 jm 系域名的转发失败
+      #   www.cdnhth.cc       代理 000 / 直连 403 ✓
+      #   cdn-msp2.jmapiproxy2.cc（图片 CDN）代理 000 / 直连 403 ✓
+      # 图片 CDN 走代理必失败 → 会把图全下挂。故这些域名必须直连。
+      # 其余站点（github、115 等）仍照常走代理。
+      NO_PROXY: "${JM_NO_PROXY:-}"
+      no_proxy: "${JM_NO_PROXY:-}"
+
     # 让容器内可以用 host.docker.internal 指向宿主机，
     # 这样代理地址写成 http://host.docker.internal:7890 即可，
     # 不必把 NAS 的局域网 IP 硬编码进 .env。
@@ -92,6 +101,16 @@ services:
       #
       # 留空/注释掉则沿用 /data/漫画下载（不接后处理流水线）。
       - "${JM_COMIC_PATH:-./comic-download}:/comic-download"
+
+      # ── jm 漫画元数据总库（候选池）─────────────────────────────────
+      # /vol1/1000/databases 是三下载器（jm / pica / wnacg）共用的元数据卷。
+      # jm.db 里 88 万本漫画的 download_state 全是 pending，从未被消费。
+      # 挂进来后下载器自己完成「挑 pending → 下载 → 回写 done」这条链，
+      # 不再依赖已全禁用的青龙脚本。
+      #
+      # 不能挂 :ro —— 回写 done 需要写权限。但代码里只 UPDATE
+      # download_state 的 state/updated_at 两列，不碰爬虫的其它数据。
+      - "${JM_DATABASES_PATH:-/vol1/1000/databases}:/databases"
 
     # 下载是 IO + 网络密集型，给足并发文件描述符
     ulimits:

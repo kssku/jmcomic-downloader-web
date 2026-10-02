@@ -138,8 +138,18 @@ impl ClientBuilderExt for reqwest::ClientBuilder {
                 Some(proxy_url) => {
                     match reqwest::Proxy::all(&proxy_url).map_err(anyhow::Error::from) {
                         Ok(proxy) => {
-                            tracing::info!(client_name, proxy_url, "使用环境变量代理");
-                            self.proxy(proxy)
+                            // reqwest 自身**不读** `no_proxy` 环境变量（curl 会读，所以
+                            // 常出现「curl 通、下载器不通」）。必须显式取出来传给 Proxy，
+                            // 否则 jm 系域名会被塞进代理 —— 实测该代理对 jm 域名转发失败，
+                            // 表现为 `tls handshake eof`，图片 CDN 会全下挂。
+                            let no_proxy = system_no_proxy();
+                            if let Some(ref spec) = no_proxy {
+                                tracing::info!(client_name, proxy_url, no_proxy = spec, "使用环境变量代理（带 no_proxy 例外）");
+                                self.proxy(proxy.no_proxy(reqwest::NoProxy::from_string(spec)))
+                            } else {
+                                tracing::info!(client_name, proxy_url, "使用环境变量代理");
+                                self.proxy(proxy)
+                            }
                         }
                         Err(err) => {
                             let err_title =
@@ -171,6 +181,24 @@ impl ClientBuilderExt for reqwest::ClientBuilder {
             }
         }
     }
+}
+
+/// 从环境变量读代理例外列表。优先 `NO_PROXY`（大写），再 `no_proxy`。
+///
+/// 为什么需要它：`reqwest::Proxy::all()` 会把代理套用到**所有**请求，
+/// 而 reqwest 不会自动读取 `no_proxy` 环境变量（curl 会）。当代理对某些
+/// 域名不可用、但直连可用时（jm 的 API 与图片 CDN 就是这种情况），
+/// 必须在代码里显式把例外列表传给 `Proxy::no_proxy()`。
+fn system_no_proxy() -> Option<String> {
+    for var in ["NO_PROXY", "no_proxy"] {
+        if let Ok(value) = std::env::var(var) {
+            let value = value.trim().to_string();
+            if !value.is_empty() {
+                return Some(value);
+            }
+        }
+    }
+    None
 }
 
 /// 从环境变量读代理地址。优先 `HTTPS_PROXY`（大写），再 `https_proxy`，

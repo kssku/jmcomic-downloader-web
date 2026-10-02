@@ -523,6 +523,21 @@ impl DownloadTask {
                 }
             }
         }
+
+        // 本章已进入终态。若这是整本漫画的最后一章，触发一次自动导出。
+        //
+        // 放在循环外、`process` 返回前：此刻状态已落库，`is_comic_fully_downloaded`
+        // 查到的是事实而非中间态。多个章节并发完成时都会走到这里，但
+        // `try_auto_export_comic` 是幂等的——第一个到达的完成导出并删图，
+        // 其余的发现目录已不存在，安全跳过。
+        if let Err(err) = crate::export::try_auto_export_comic(&self.app, &self.comic.id).await {
+            tracing::error!(
+                comic_id = %self.comic.id,
+                comic_title = %self.comic.name,
+                err = %err,
+                "自动导出检查失败，原图保留"
+            );
+        }
     }
 
     async fn download_chapter(&self) {

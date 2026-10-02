@@ -773,23 +773,28 @@ pub async fn export_comic_cbz(
     app: &AppContext,
     comic_id: String,
 ) -> CommandResult<crate::export::ExportResult> {
-    let comic = utils::get_comic(app, &comic_id)
-        .await
-        .context(format!("获取ID为`{comic_id}`的漫画失败"))
-        .map_err(|err| CommandError::from("导出单行本失败", err))?;
-
-    let export_dir = app.get_config().read().export_dir.clone();
-    let comic_title = comic.name.clone();
+    // 走本地元数据重建 Comic，不调 `utils::get_comic`：断网时仍能导出已下载的
+    // 漫画，且与自动导出（`export::try_auto_export_comic`）行为一致——同一套
+    // 共用体负责「导出 + 按开关删图」。导出是重 IO 操作，放 blocking 线程池。
+    let app = app.clone();
+    let comic_id_for_task = comic_id.clone();
 
     let result = tokio::task::spawn_blocking(move || {
-        crate::export::export_comic_cbz(&comic, &export_dir)
+        crate::export::export_local_comic(&app, &comic_id_for_task)
     })
     .await
     .map_err(|err| CommandError::from("导出单行本失败", anyhow!(err)))?
     .map_err(|err| {
         CommandError::from(
             "导出单行本失败",
-            err.context(format!("漫画`{comic_title}`导出 CBZ 失败")),
+            err.context(format!("漫画`{comic_id}`导出 CBZ 失败")),
+        )
+    })?;
+
+    let result = result.ok_or_else(|| {
+        CommandError::from(
+            "导出单行本失败",
+            anyhow!("找不到ID为`{comic_id}`的本地元数据，无法导出（该漫画可能尚未下载）"),
         )
     })?;
 
@@ -807,7 +812,7 @@ pub async fn export_comic_cbz(
 /// 列出导出目录下所有已生成的 CBZ。
 ///
 /// 返回 `(文件名, 字节大小, 修改时间 Unix 秒)`，按修改时间倒序。
-/// 只扫一层目录，不递归——导出产物就是扁平的 `{导出目录}/{漫画名}.cbz`。
+/// 只扫一层目录，不递归——导出产物就是扁平的 `{导出目录}/{漫画ID}.cbz`。
 pub fn list_exported_cbz(app: &AppContext) -> CommandResult<Vec<ExportedCbz>> {
     let export_dir = app.get_config().read().export_dir.clone();
 
@@ -968,6 +973,7 @@ mod tests {
             skipped_chapters: vec!["ch2".into()],
             already_running_chapters: vec!["ch3".into()],
             created_count: 1,
+            conflicted_chapters: vec!["ch4".into()],
         };
 
         let json: serde_json::Value = serde_json::to_value(&result).unwrap();
@@ -977,6 +983,14 @@ mod tests {
         for key in ["createdCount", "alreadyRunningChapters", "skippedChapters"] {
             assert!(obj.contains_key(key), "青龙契约缺少字段 `{key}`");
         }
+
+        // `conflictedChapters`：该 chapter_id 已归属另一本漫画时被拒绝的章节。
+        // 青龙脚本据此判断「这本没全投出去」，删掉会让冲突被静默吞掉。
+        assert!(
+            obj.contains_key("conflictedChapters"),
+            "青龙契约缺少字段 `conflictedChapters`"
+        );
+        assert!(obj["conflictedChapters"].is_array());
 
         // 值为数组的字段必须是数组，否则脚本的 `len()` 会炸。
         assert!(obj["alreadyRunningChapters"].is_array());

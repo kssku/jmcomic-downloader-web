@@ -83,6 +83,9 @@ pub fn router(app: AppContext, auth: AuthConfig) -> Router {
         // handler 内部走 `spawn_blocking`，不占 axum 的 async worker。
         .route("/export/comic/:comic_id", post(export_comic_cbz))
         .route("/export/list", get(list_exported_cbz))
+        // ── 候选池自动补全（jm.db）──────────────────────────
+        .route("/catalog/status", get(catalog_status))
+        .route("/catalog/trigger", post(catalog_trigger))
         .route("/ws", get(ws::handler))
         .layer(axum::middleware::from_fn_with_state(
             auth.clone(),
@@ -328,6 +331,65 @@ async fn list_exported_cbz(
 ) -> Result<Json<Vec<commands::ExportedCbz>>, ApiError> {
     let items = handle!("列出导出文件失败", commands::list_exported_cbz(&state.app))?;
     Ok(Json(items))
+}
+
+// ════════════════════════════════════════════════════════════════
+// 候选池自动补全（jm.db）
+// ════════════════════════════════════════════════════════════════
+
+/// `GET /api/catalog/status` —— 候选池接入状况与补全进度。
+///
+/// 库没挂进来（`catalog` 为 `None`）时 `attached=false`，其余字段仍返回，
+/// 前端不用为「未接入」单独写一套渲染分支。
+async fn catalog_status(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let app = &state.app;
+    let sync = app.catalog_sync_state();
+
+    // 数各状态的本数是全表聚合，88 万行的库上约百毫秒级，走阻塞线程池。
+    let counts = {
+        let app = app.clone();
+        tokio::task::spawn_blocking(move || match app.catalog() {
+            Some(catalog) => catalog.state_counts().ok(),
+            None => None,
+        })
+        .await
+        .ok()
+        .flatten()
+    };
+
+    let (enabled, batch) = {
+        let config = app.config_read();
+        (config.catalog_auto_fill, config.catalog_fill_batch)
+    };
+
+    Ok(Json(serde_json::json!({
+        "attached": app.catalog().is_some(),
+        "path": app.catalog().map(|c| c.path().display().to_string()),
+        "autoFill": enabled,
+        "batch": batch,
+        "running": sync.is_running(),
+        "rounds": sync.rounds(),
+        "markedDone": sync.marked_done(),
+        "inFlight": sync.in_flight_count(),
+        "counts": counts.map(|v| v.into_iter().collect::<std::collections::HashMap<_, _>>()),
+    })))
+}
+
+/// `POST /api/catalog/trigger` —— 立刻跑一轮补全。
+///
+/// 已有轮次在跑时返回 `running=true` 且 `result=null`，不排队、不并发。
+/// 这一轮是同步跑完的（可能几小时），所以走 `spawn_blocking` 无关——它是
+/// 纯 async 轮询等待，但耗时长，前端应当以「已受理」语义对待。
+async fn catalog_trigger(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let result = crate::catalog_sync::run_once(state.app.clone()).await;
+    Ok(Json(serde_json::json!({
+        "running": result.is_none(),
+        "result": result,
+    })))
 }
 
 async fn delete_task(

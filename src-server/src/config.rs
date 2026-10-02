@@ -24,6 +24,21 @@ pub struct Config {
     pub img_concurrency: usize,
     pub img_download_interval_sec: u64,
     pub should_download_cover: bool,
+    /// 下载完成后自动导出单行本 CBZ，并在导出成功后删除该漫画的下载目录。
+    ///
+    /// 删除是**不可逆**的：整棵 `漫画下载/{漫画ID}/` 会被移除，包括各章图片、
+    /// 章节元数据与封面。想重新导出必须先重新下载。默认开启，但导出失败时
+    /// 一律保留图片（见 `download_manager.rs` 的自动导出逻辑）。
+    #[serde(default = "default_true")]
+    pub auto_export_cbz: bool,
+
+    /// 是否启用「候选池自动补全」：自动从 `jm.db` 挑 pending 本子提交下载。
+    #[serde(default = "default_true")]
+    pub catalog_auto_fill: bool,
+
+    /// 候选池自动补全每轮提交的本数上限。
+    #[serde(default = "default_catalog_batch")]
+    pub catalog_fill_batch: usize,
     pub api_base_url: String,
 }
 
@@ -100,6 +115,11 @@ impl Config {
             img_concurrency: 20,
             img_download_interval_sec: 0,
             should_download_cover: true,
+            // 下载完成后自动导出单行本，并在导出成功后删除原图目录。
+            // 默认开：这是「下完即用」的省心路径。关掉则只下载、不导出、不删。
+            auto_export_cbz: true,
+            catalog_auto_fill: true,
+            catalog_fill_batch: default_catalog_batch(),
             // 注意：这里只填域名，不要带 https:// 前缀。
             // jm_client.rs 拼接请求时会自己加，写成 "https://xxx" 会拼出双前缀。
             //
@@ -117,4 +137,14 @@ pub enum ProxyMode {
     System,
     NoProxy,
     Custom,
+}
+
+/// 候选池自动补全的每轮批量默认值。
+/// `serde` 用的默认值：布尔开关一律默认 `true`。
+fn default_true() -> bool {
+    true
+}
+
+fn default_catalog_batch() -> usize {
+    10
 }
