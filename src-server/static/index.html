@@ -3,300 +3,829 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="color-scheme" content="dark" />
 <title>jmcomic 下载后台</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-    background: #0f1117; color: #e6e8ee; font-size: 14px; line-height: 1.5;
+/* ═══════════════════════════════════════════════════════════════
+   设计令牌：所有颜色 / 圆角 / 阴影集中于此，换主题只改这一段
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  --bg-0: #0b0e14;   /* 最底：页面背景 */
+  --bg-1: #11151d;   /* 卡片 */
+  --bg-2: #161b25;   /* 卡片内嵌块 */
+  --bg-3: #1c222e;   /* 悬停 / 轨道 */
+
+  --border: #232a38;
+  --border-strong: #2e3748;
+
+  --fg-0: #e8ecf4;   /* 主文字 */
+  --fg-1: #a8b2c4;   /* 次要文字 */
+  --fg-2: #6b7689;   /* 弱化文字 */
+  --fg-3: #4a5466;   /* 占位符 */
+
+  --accent: #4f7cff;
+  --accent-hover: #6b91ff;
+  --accent-dim: rgba(79, 124, 255, 0.12);
+
+  --success: #34d399;
+  --success-dim: rgba(52, 211, 153, 0.12);
+  --warning: #fbbf24;
+  --warning-dim: rgba(251, 191, 36, 0.12);
+  --danger: #f87171;
+  --danger-dim: rgba(248, 113, 113, 0.12);
+
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.18);
+
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.55;
+  background: var(--bg-0);
+  color: var(--fg-0);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 键盘焦点可见：仅键盘导航出现，不干扰鼠标 */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 5px;
+  border: 2px solid var(--bg-0);
+}
+::-webkit-scrollbar-thumb:hover { background: #3d4859; }
+
+/* ═══════════════════════════════════════════════════════════════
+   布局骨架
+   ═══════════════════════════════════════════════════════════════ */
+.shell { max-width: 1680px; margin: 0 auto; padding: 0 24px 48px; }
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  margin-bottom: 22px;
+  background: rgba(11, 14, 20, 0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-mark {
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent), #7c5cff);
+  font-size: 15px; font-weight: 700; color: #fff;
+  flex-shrink: 0;
+}
+.brand-text h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.brand-text p { margin: 0; font-size: 11px; color: var(--fg-2); }
+
+.conn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px; font-weight: 500;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--fg-1);
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+.conn .led { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-3); flex-shrink: 0; }
+.conn[data-state="live"] { color: var(--success); border-color: rgba(52,211,153,0.3); background: var(--success-dim); }
+.conn[data-state="live"] .led { background: var(--success); animation: pulse 2s ease-in-out infinite; }
+.conn[data-state="down"] { color: var(--danger); border-color: rgba(248,113,113,0.3); background: var(--danger-dim); }
+.conn[data-state="down"] .led { background: var(--danger); }
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.8); }
+}
+.spacer { flex: 1; }
+
+/* ═══════════════════════════════════════════════════════════════
+   控件
+   ═══════════════════════════════════════════════════════════════ */
+button {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+button:hover:not(:disabled) { background: var(--accent-hover); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+button.ghost {
+  background: var(--bg-2);
+  border-color: var(--border);
+  color: var(--fg-1);
+}
+button.ghost:hover:not(:disabled) { background: var(--bg-3); border-color: var(--border-strong); color: var(--fg-0); }
+
+button.sm { padding: 4px 10px; font-size: 12px; }
+
+button.icon {
+  padding: 3px 9px;
+  font-size: 12px;
+  background: transparent;
+  border-color: var(--border);
+  color: var(--fg-1);
+}
+button.icon:hover:not(:disabled) { background: var(--bg-3); color: var(--fg-0); }
+button.icon.danger:hover:not(:disabled) {
+  background: var(--danger-dim);
+  border-color: rgba(248, 113, 113, 0.4);
+  color: var(--danger);
+}
+
+input[type="text"], input[type="number"], textarea, select {
+  font: inherit;
+  font-size: 13px;
+  width: 100%;
+  padding: 8px 11px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-1);
+  color: var(--fg-0);
+  transition: border-color 0.15s, background 0.15s;
+}
+input:hover, textarea:hover, select:hover { border-color: var(--border-strong); }
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--bg-2);
+}
+input::placeholder, textarea::placeholder { color: var(--fg-3); }
+textarea {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.75;
+  resize: vertical;
+  min-height: 100px;
+}
+input[type="checkbox"] { accent-color: var(--accent); width: auto; }
+
+/* ═══════════════════════════════════════════════════════════════
+   卡片 / 分栏
+   ═══════════════════════════════════════════════════════════════ */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(340px, 400px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 1080px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+.col { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+
+.card {
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 18px 20px;
+  box-shadow: var(--shadow);
+}
+.card > h2 {
+  margin: 0 0 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-0);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card > h2::before {
+  content: '';
+  width: 3px; height: 12px;
+  border-radius: 2px;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.field { margin-bottom: 12px; }
+.field:last-child { margin-bottom: 0; }
+.field > label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-1);
+  margin-bottom: 5px;
+}
+.hint { font-size: 11.5px; color: var(--fg-2); line-height: 1.5; margin-top: 6px; }
+.muted { color: var(--fg-2); font-size: 12px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   统计
+   ═══════════════════════════════════════════════════════════════ */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: 8px;
+}
+.stat {
+  padding: 10px 8px;
+  border-radius: var(--r-md);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  text-align: center;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.stat:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+.stat .n {
+  display: block;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-0);
+}
+.stat .k {
+  display: block;
+  font-size: 10.5px;
+  color: var(--fg-2);
+  margin-top: 2px;
+  letter-spacing: 0.03em;
+}
+.stat[data-tone="active"] .n { color: var(--accent); }
+.stat[data-tone="ok"] .n { color: var(--success); }
+.stat[data-tone="warn"] .n { color: var(--warning); }
+.stat[data-tone="bad"] .n { color: var(--danger); }
+
+/* ═══════════════════════════════════════════════════════════════
+   状态徽章
+   ═══════════════════════════════════════════════════════════════ */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.badge::before {
+  content: '';
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.badge[data-s="pending"]     { background: var(--bg-3); color: var(--fg-1); border-color: var(--border-strong); }
+.badge[data-s="downloading"] { background: var(--accent-dim); color: #8fb0ff; border-color: rgba(79,124,255,0.3); }
+.badge[data-s="downloading"]::before { animation: pulse 1.4s ease-in-out infinite; }
+.badge[data-s="paused"]      { background: var(--warning-dim); color: var(--warning); border-color: rgba(251,191,36,0.3); }
+.badge[data-s="completed"]   { background: var(--success-dim); color: var(--success); border-color: rgba(52,211,153,0.3); }
+.badge[data-s="failed"]      { background: var(--danger-dim); color: var(--danger); border-color: rgba(248,113,113,0.3); }
+.badge[data-s="cancelled"]   { background: var(--bg-3); color: var(--fg-2); border-color: var(--border); }
+
+/* ═══════════════════════════════════════════════════════════════
+   进度条
+   ═══════════════════════════════════════════════════════════════ */
+.progress { display: flex; align-items: center; gap: 8px; min-width: 140px; }
+.track {
+  flex: 1;
+  height: 6px;
+  min-width: 60px;
+  border-radius: 3px;
+  background: var(--bg-3);
+  overflow: hidden;
+}
+.track > i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+.track > i[data-s="completed"] { background: var(--success); }
+.track > i[data-s="failed"]    { background: var(--danger); }
+.track > i[data-s="paused"]    { background: var(--warning); }
+.pct {
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-1);
+  min-width: 46px;
+  text-align: right;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   表格
+   ═══════════════════════════════════════════════════════════════ */
+.table-wrap { overflow-x: auto; margin: 0 -20px; padding: 0 20px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  position: sticky; top: 0;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-2);
+  padding: 8px 10px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border-strong);
+  white-space: nowrap;
+}
+td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+tbody tr { transition: background 0.12s; }
+tbody tr:hover { background: var(--bg-2); }
+tbody tr:last-child td { border-bottom: none; }
+
+.cell-title {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-0);
+}
+.cell-sub {
+  font-size: 11px;
+  color: var(--fg-2);
+  font-family: var(--mono);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cell-num { font-variant-numeric: tabular-nums; color: var(--fg-1); }
+.cell-actions { display: flex; gap: 5px; flex-wrap: nowrap; }
+
+.empty { padding: 52px 20px; text-align: center; color: var(--fg-2); }
+.empty-icon { font-size: 32px; opacity: 0.3; margin-bottom: 10px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   过滤标签页
+   ═══════════════════════════════════════════════════════════════ */
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+.tabs button {
+  background: transparent;
+  color: var(--fg-2);
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.tabs button:hover:not(:disabled) { color: var(--fg-0); background: transparent; }
+.tabs button.active { color: var(--fg-0); border-bottom-color: var(--accent); }
+.tabs .count {
+  font-size: 10.5px;
+  color: var(--fg-3);
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.tabs button.active .count { color: var(--accent); }
+.tabs .filter-input { width: 140px; margin-bottom: 6px; flex-shrink: 0; }
+
+/* ═══════════════════════════════════════════════════════════════
+   日志
+   ═══════════════════════════════════════════════════════════════ */
+.log {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.7;
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 12px 14px;
+  height: 230px;
+  overflow-y: auto;
+  color: var(--fg-1);
+}
+.log-line { display: flex; gap: 9px; }
+.log-line + .log-line { margin-top: 1px; }
+.log-ts { color: var(--fg-3); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.log-msg { min-width: 0; word-break: break-word; }
+.log-line[data-k="ok"] .log-msg   { color: var(--success); }
+.log-line[data-k="err"] .log-msg  { color: var(--danger); }
+.log-line[data-k="warn"] .log-msg { color: var(--warning); }
+.log-line[data-k="info"] .log-msg { color: #8fb0ff; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Toast
+   ═══════════════════════════════════════════════════════════════ */
+.toasts {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 220px;
+  max-width: 380px;
+  padding: 11px 14px;
+  border-radius: var(--r-md);
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  color: var(--fg-0);
+  animation: slideIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.toast[data-k="ok"]   { border-left: 3px solid var(--success); }
+.toast[data-k="err"]  { border-left: 3px solid var(--danger); }
+.toast[data-k="warn"] { border-left: 3px solid var(--warning); }
+.toast[data-k="info"] { border-left: 3px solid var(--accent); }
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   无障碍 / 动效偏好
+   ═══════════════════════════════════════════════════════════════ */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
-  .wrap { max-width: 1280px; margin: 0 auto; padding: 20px; }
-  header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
-  h1 { font-size: 18px; font-weight: 600; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: #6b7280; }
-  .dot.on { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
-  .dot.off { background: #ef4444; }
-  .muted { color: #8b93a7; font-size: 12px; }
-  .grid { display: grid; grid-template-columns: 380px 1fr; gap: 18px; align-items: start; }
-  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
-  .card { background: #171a22; border: 1px solid #232733; border-radius: 10px; padding: 16px; margin-bottom: 18px; }
-  .card h2 { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #c8cddb; }
-  textarea, input[type=text], input[type=number] {
-    width: 100%; background: #0f1117; border: 1px solid #2a2f3d; color: #e6e8ee;
-    border-radius: 6px; padding: 8px 10px; font-family: inherit; font-size: 13px; resize: vertical;
-  }
-  textarea { min-height: 120px; font-family: ui-monospace, Menlo, Consolas, monospace; }
-  textarea:focus, input:focus { outline: none; border-color: #3b82f6; }
-  button {
-    background: #3b82f6; color: #fff; border: none; border-radius: 6px; padding: 8px 14px;
-    font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit;
-  }
-  button:hover { background: #2563eb; }
-  button:disabled { background: #2a2f3d; color: #6b7280; cursor: not-allowed; }
-  button.ghost { background: transparent; border: 1px solid #2a2f3d; color: #c8cddb; }
-  button.ghost:hover { background: #1f2430; }
-  button.danger { background: #dc2626; }
-  button.danger:hover { background: #b91c1c; }
-  button.sm { padding: 4px 9px; font-size: 12px; }
-  .row { display: flex; gap: 8px; align-items: center; }
-  .row.wrap-row { flex-wrap: wrap; }
-  .spacer { flex: 1; }
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(78px, 1fr)); gap: 8px; }
-  .stat { background: #0f1117; border: 1px solid #232733; border-radius: 6px; padding: 8px; text-align: center; }
-  .stat .n { font-size: 18px; font-weight: 600; }
-  .stat .l { font-size: 11px; color: #8b93a7; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; color: #8b93a7; font-weight: 500; font-size: 12px; padding: 6px 8px; border-bottom: 1px solid #232733; white-space: nowrap; }
-  td { padding: 7px 8px; border-bottom: 1px solid #1c2029; vertical-align: middle; }
-  tr:hover td { background: #1a1e28; }
-  .bar { width: 70px; height: 5px; background: #2a2f3d; border-radius: 3px; overflow: hidden; display: inline-block; vertical-align: middle; }
-  .bar > i { display: block; height: 100%; background: #3b82f6; }
-  .bar > i.done { background: #22c55e; }
-  .bar > i.fail { background: #ef4444; }
-  .tag { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 500; }
-  .tag.pending { background: #374151; color: #d1d5db; }
-  .tag.downloading { background: #1e3a8a; color: #93c5fd; }
-  .tag.paused { background: #78350f; color: #fcd34d; }
-  .tag.cancelled { background: #3f3f46; color: #a1a1aa; }
-  .tag.completed { background: #14532d; color: #86efac; }
-  .tag.failed { background: #7f1d1d; color: #fca5a5; }
-  .ellip { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .log { background: #0b0d12; border: 1px solid #232733; border-radius: 6px; padding: 10px;
-         font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px;
-         max-height: 190px; overflow-y: auto; color: #9aa3b5; }
-  .log .ok { color: #86efac; }
-  .log .err { color: #fca5a5; }
-  .log .ts { color: #4b5563; margin-right: 6px; }
-  .hint { font-size: 12px; color: #6b7280; margin-top: 6px; }
-  .tabs { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid #232733; }
-  .tabs button { background: transparent; color: #8b93a7; border: none; border-bottom: 2px solid transparent;
-                 border-radius: 0; padding: 7px 12px; }
-  .tabs button:hover { color: #c8cddb; background: transparent; }
-  .tabs button.active { color: #e6e8ee; border-bottom-color: #3b82f6; }
-  .field { margin-bottom: 10px; }
-  .field label { display: block; font-size: 12px; color: #8b93a7; margin-bottom: 4px; }
+}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <span class="dot" id="ws-dot"></span>
-    <h1>jmcomic 下载后台</h1>
-    <span class="muted" id="ws-text">连接中…</span>
+<div class="shell">
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">J</div>
+      <div class="brand-text">
+        <h1>jmcomic 下载后台</h1>
+        <p>纯 API 调度控制台</p>
+      </div>
+    </div>
     <div class="spacer"></div>
-    <button class="ghost sm" onclick="refreshAll()">刷新</button>
+    <div class="conn" id="conn" data-state="connecting" role="status" aria-live="polite">
+      <span class="led" aria-hidden="true"></span>
+      <span id="conn-text">连接中</span>
+    </div>
+    <button class="ghost sm" onclick="refreshAll()">刷新全部</button>
   </header>
 
-  <div class="grid">
-    <!-- ══ 左列 ══ -->
-    <div>
-      <div class="card">
-        <h2>批量投递（按漫画 ID）</h2>
-        <textarea id="batch-ids" placeholder="每行一个漫画 ID，也可用逗号/空格分隔&#10;1461316&#10;1469067&#10;1435947"></textarea>
-        <div class="hint">留空 chapterId 则下载整本未下载章节</div>
-        <div class="row" style="margin-top:10px">
-          <input type="text" id="batch-chapter" placeholder="chapterId（可选，全部统一指定）" />
-        </div>
-        <div class="row" style="margin-top:10px">
-          <button id="btn-batch" onclick="submitBatch()">开始批量投递</button>
-          <button class="ghost" onclick="document.getElementById('batch-ids').value=''">清空</button>
-          <div class="spacer"></div>
-          <span class="muted" id="batch-count"></span>
-        </div>
-      </div>
+  <div class="layout">
 
-      <div class="card">
+    <!-- ══ 左列 ══ -->
+    <div class="col">
+
+      <section class="card">
+        <h2>批量投递</h2>
+        <div class="field">
+          <label for="batch-ids">漫画 ID 列表</label>
+          <textarea id="batch-ids" spellcheck="false"
+            placeholder="每行一个，也支持逗号 / 空格分隔&#10;1461316&#10;1469067&#10;1435947"
+            aria-describedby="batch-hint"></textarea>
+          <p class="hint" id="batch-hint">非数字内容会被自动忽略，重复 ID 只投递一次</p>
+        </div>
+        <div class="field">
+          <label for="batch-chapter">章节 ID（可选）</label>
+          <input type="text" id="batch-chapter" spellcheck="false" placeholder="留空则下载整本未下载章节" />
+        </div>
+        <div class="row">
+          <button id="btn-batch" onclick="submitBatch()">开始投递</button>
+          <button class="ghost" onclick="clearBatch()">清空</button>
+          <div class="spacer"></div>
+          <span class="muted" id="batch-count" aria-live="polite"></span>
+        </div>
+      </section>
+
+      <section class="card">
         <h2>单个投递</h2>
         <div class="field">
-          <label>漫画 ID</label>
-          <input type="text" id="one-comic" placeholder="1461316" />
+          <label for="one-comic">漫画 ID</label>
+          <input type="text" id="one-comic" spellcheck="false" placeholder="1461316" />
         </div>
         <div class="field">
-          <label>章节 ID（可选）</label>
-          <input type="text" id="one-chapter" placeholder="留空下载整本" />
+          <label for="one-chapter">章节 ID（可选）</label>
+          <input type="text" id="one-chapter" spellcheck="false" placeholder="留空下载整本" />
         </div>
         <button onclick="submitOne()">投递</button>
-      </div>
+      </section>
 
-      <div class="card">
+      <section class="card">
         <h2>任务统计</h2>
         <div class="stats" id="stats"></div>
-        <div class="row" style="margin-top:12px">
+        <div class="row" style="margin-top:14px">
           <button class="ghost sm" onclick="purgeTasks()">清理终态任务</button>
         </div>
-      </div>
+      </section>
 
-      <div class="card">
+      <section class="card">
         <h2>运行配置</h2>
         <div id="config-fields"></div>
-        <div class="row" style="margin-top:10px">
-          <button onclick="saveConfig()">保存配置</button>
+        <div class="row" style="margin-top:14px">
+          <button onclick="saveConfig()">保存</button>
           <button class="ghost" onclick="loadConfig()">重新载入</button>
         </div>
-      </div>
+      </section>
+
     </div>
 
     <!-- ══ 右列 ══ -->
-    <div>
-      <div class="card">
-        <div class="tabs">
-          <button class="active" data-state="" onclick="setFilter(this, '')">全部</button>
-          <button data-state="downloading" onclick="setFilter(this, 'downloading')">下载中</button>
-          <button data-state="pending" onclick="setFilter(this, 'pending')">等待</button>
-          <button data-state="paused" onclick="setFilter(this, 'paused')">暂停</button>
-          <button data-state="completed" onclick="setFilter(this, 'completed')">已完成</button>
-          <button data-state="failed" onclick="setFilter(this, 'failed')">失败</button>
+    <div class="col">
+
+      <section class="card">
+        <div class="tabs" role="tablist" id="tabs">
+          <button class="active" data-state="" role="tab" aria-selected="true" onclick="setFilter(this, '')">全部<span class="count" id="c-all"></span></button>
+          <button data-state="downloading" role="tab" aria-selected="false" onclick="setFilter(this, 'downloading')">下载中<span class="count" id="c-downloading"></span></button>
+          <button data-state="pending" role="tab" aria-selected="false" onclick="setFilter(this, 'pending')">等待<span class="count" id="c-pending"></span></button>
+          <button data-state="paused" role="tab" aria-selected="false" onclick="setFilter(this, 'paused')">暂停<span class="count" id="c-paused"></span></button>
+          <button data-state="completed" role="tab" aria-selected="false" onclick="setFilter(this, 'completed')">已完成<span class="count" id="c-completed"></span></button>
+          <button data-state="failed" role="tab" aria-selected="false" onclick="setFilter(this, 'failed')">失败<span class="count" id="c-failed"></span></button>
           <div class="spacer"></div>
-          <input type="text" id="filter-comic" placeholder="按漫画 ID 过滤" style="width:130px" oninput="loadTasks()" />
+          <input type="text" id="filter-comic" class="filter-input" spellcheck="false"
+                 placeholder="按漫画 ID 过滤" oninput="onFilterInput()" aria-label="按漫画 ID 过滤" />
         </div>
-        <div style="overflow-x:auto">
+
+        <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>漫画</th>
-                <th>章节</th>
-                <th>状态</th>
-                <th>进度</th>
-                <th>重试</th>
-                <th>操作</th>
+                <th scope="col">漫画 / 章节</th>
+                <th scope="col">状态</th>
+                <th scope="col">进度</th>
+                <th scope="col">重试</th>
+                <th scope="col">操作</th>
               </tr>
             </thead>
-            <tbody id="task-rows"><tr><td colspan="6" class="muted" style="padding:20px;text-align:center">加载中…</td></tr></tbody>
+            <tbody id="task-rows"></tbody>
           </table>
         </div>
-        <div class="row" style="margin-top:12px">
+
+        <div class="row" style="margin-top:14px">
           <span class="muted" id="task-total"></span>
           <div class="spacer"></div>
-          <button class="ghost sm" onclick="pagePrev()">上一页</button>
+          <button class="ghost sm" id="btn-prev" onclick="pagePrev()">上一页</button>
           <span class="muted" id="page-info">1</span>
-          <button class="ghost sm" onclick="pageNext()">下一页</button>
+          <button class="ghost sm" id="btn-next" onclick="pageNext()">下一页</button>
         </div>
-      </div>
+      </section>
 
-      <div class="card">
+      <section class="card">
         <h2>事件日志</h2>
-        <div class="log" id="log"></div>
-      </div>
+        <div class="log" id="log" role="log" aria-live="polite" aria-label="事件日志"></div>
+      </section>
+
     </div>
   </div>
 </div>
 
-<script>
-const API = '';
-const PAGE_SIZE = 50;
-let ws = null;
-let tasks = [];
-let filterState = '';
-let pageOffset = 0;
-let totalTasks = 0;
-let configObj = null;
+<div class="toasts" id="toasts" aria-live="polite"></div>
 
-// ── 工具 ──────────────────────────────────────────────
-function log(msg, cls = '') {
-  const el = document.getElementById('log');
-  const t = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-  const div = document.createElement('div');
-  div.innerHTML = `<span class="ts">${t}</span><span class="${cls}">${escapeHtml(msg)}</span>`;
-  el.appendChild(div);
-  el.scrollTop = el.scrollHeight;
-  while (el.childElementCount > 300) el.removeChild(el.firstChild);
+<script>
+'use strict';
+
+/* ═══════════════════════════════════════════════════════════════
+   常量与状态
+   ═══════════════════════════════════════════════════════════════ */
+const PAGE_SIZE = 50;
+
+const STATE_LABEL = {
+  pending: '等待',
+  downloading: '下载中',
+  paused: '暂停',
+  completed: '已完成',
+  failed: '失败',
+  cancelled: '已取消',
+};
+
+const CONFIG_LABELS = {
+  baseDir: '保存目录',
+  dirFmt: '目录格式',
+  chapterConcurrency: '章节并发',
+  imgConcurrency: '图片并发',
+  imgDownloadIntervalSec: '图片间隔（秒）',
+  imgRetryTimes: '图片重试次数',
+  imgRetryIntervalSec: '重试间隔（秒）',
+  chapterDownloadIntervalSec: '章节间隔（秒）',
+  useCbz: '导出 CBZ',
+};
+
+const state = {
+  filterState: '',
+  filterComic: '',
+  pageOffset: 0,
+  totalTasks: 0,
+  tasks: [],
+  config: null,
+  ws: null,
+  wsRetry: 0,
+  stats: null,
+  filterTimer: null,
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   基础工具
+   ═══════════════════════════════════════════════════════════════ */
+const $ = (id) => document.getElementById(id);
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
 }
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+function ts() {
+  return new Date().toLocaleTimeString('zh-CN', { hour12: false });
 }
+
+/* 统一 API 调用：自动 JSON、自动抛错、错误信息优先取后端字段 */
 async function api(method, path, body) {
   const opt = { method, headers: {} };
   if (body !== undefined) {
     opt.headers['Content-Type'] = 'application/json';
     opt.body = JSON.stringify(body);
   }
-  const res = await fetch(API + path, opt);
+  const res = await fetch(path, opt);
   const text = await res.text();
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch (e) { data = text; }
   if (!res.ok) {
-    const msg = (data && (data.error || data.message)) || res.status + ' ' + res.statusText;
-    throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+    const raw = (data && (data.error || data.message)) || `${res.status} ${res.statusText}`;
+    throw new Error(typeof raw === 'string' ? raw : JSON.stringify(raw));
   }
   return data;
 }
 
-// ── 批量投递 ──────────────────────────────────────────
-function parseIds(raw) {
-  return raw.split(/[\n,\s]+/).map(s => s.trim()).filter(s => /^\d+$/.test(s));
+/* ═══════════════════════════════════════════════════════════════
+   日志与 Toast
+   ═══════════════════════════════════════════════════════════════ */
+function log(msg, kind = '') {
+  const el = $('log');
+  const line = document.createElement('div');
+  line.className = 'log-line';
+  if (kind) line.dataset.k = kind;
+  line.innerHTML = `<span class="log-ts">${ts()}</span><span class="log-msg">${esc(msg)}</span>`;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+  while (el.childElementCount > 400) el.removeChild(el.firstChild);
 }
-document.getElementById('batch-ids').addEventListener('input', (e) => {
-  const ids = parseIds(e.target.value);
-  const uniq = [...new Set(ids)];
-  document.getElementById('batch-count').textContent = uniq.length ? `${uniq.length} 个 ID` : '';
+
+function toast(msg, kind = 'info', ms = 3200) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.dataset.k = kind;
+  el.textContent = msg;
+  $('toasts').appendChild(el);
+  setTimeout(() => {
+    el.style.transition = 'opacity .2s, transform .2s';
+    el.style.opacity = '0';
+    el.style.transform = 'translateX(16px)';
+    setTimeout(() => el.remove(), 220);
+  }, ms);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   批量投递
+   ═══════════════════════════════════════════════════════════════ */
+function parseIds(raw) {
+  return raw.split(/[\n,\s]+/).map((s) => s.trim()).filter((s) => /^\d+$/.test(s));
+}
+
+function uniqIds(raw) {
+  return [...new Set(parseIds(raw))];
+}
+
+function clearBatch() {
+  $('batch-ids').value = '';
+  $('batch-chapter').value = '';
+  $('batch-count').textContent = '';
+}
+
+$('batch-ids').addEventListener('input', () => {
+  const n = uniqIds($('batch-ids').value).length;
+  $('batch-count').textContent = n ? `${n} 个 ID` : '';
 });
 
 async function submitBatch() {
-  const ids = [...new Set(parseIds(document.getElementById('batch-ids').value))];
-  if (ids.length === 0) { log('没有解析到有效漫画 ID', 'err'); return; }
-  const chapterId = document.getElementById('batch-chapter').value.trim() || null;
-  const btn = document.getElementById('btn-batch');
+  const ids = uniqIds($('batch-ids').value);
+  if (ids.length === 0) { toast('没有解析到有效漫画 ID', 'warn'); log('批量投递中止：无有效 ID', 'warn'); return; }
+
+  const chapterId = $('batch-chapter').value.trim() || null;
+  const btn = $('btn-batch');
   btn.disabled = true;
-  log(`开始批量投递 ${ids.length} 个漫画…`);
+  btn.textContent = '投递中…';
+  log(`开始批量投递 ${ids.length} 个漫画`, 'info');
 
   let ok = 0, fail = 0, created = 0;
-  for (let i = 0; i < ids.length; i++) {
-    const id = ids[i];
+  for (const id of ids) {
     try {
       const body = { comicId: id };
       if (chapterId) body.chapterId = chapterId;
       const r = await api('POST', '/api/download/by-id', body);
       created += (r && r.createdCount) || 0;
       ok++;
-      log(`[${i + 1}/${ids.length}] ${id} → 新建 ${r.createdCount || 0} 章「${r.comicTitle || ''}」`, 'ok');
+      log(`✓ ${id} 新建 ${r.createdCount || 0} 个章节任务`, 'ok');
     } catch (e) {
       fail++;
-      log(`[${i + 1}/${ids.length}] ${id} → 失败：${e.message}`, 'err');
+      log(`✗ ${id} ${e.message}`, 'err');
     }
-    await new Promise(r => setTimeout(r, 250));
   }
+
   btn.disabled = false;
-  log(`批量完成：成功 ${ok} / 失败 ${fail}，共新建 ${created} 个章节任务`, ok > 0 ? 'ok' : 'err');
-  loadTasks();
-  loadStats();
+  btn.textContent = '开始投递';
+  const summary = `批量完成：成功 ${ok} / 失败 ${fail}，共新建 ${created} 个章节任务`;
+  log(summary, fail === 0 ? 'ok' : 'warn');
+  toast(summary, fail === 0 ? 'ok' : 'warn');
+  await refreshAll();
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   单个投递
+   ═══════════════════════════════════════════════════════════════ */
 async function submitOne() {
-  const comicId = document.getElementById('one-comic').value.trim();
-  if (!comicId) { log('请填漫画 ID', 'err'); return; }
-  const chapterId = document.getElementById('one-chapter').value.trim() || null;
+  const comicId = $('one-comic').value.trim();
+  if (!/^\d+$/.test(comicId)) { toast('请输入纯数字漫画 ID', 'warn'); return; }
+
+  const chapterId = $('one-chapter').value.trim() || null;
+  const body = { comicId };
+  if (chapterId) body.chapterId = chapterId;
+
   try {
-    const body = { comicId };
-    if (chapterId) body.chapterId = chapterId;
     const r = await api('POST', '/api/download/by-id', body);
-    log(`投递成功：${r.comicTitle || comicId}，新建 ${r.createdCount || 0} 章`, 'ok');
-    loadTasks();
-    loadStats();
+    const msg = `✓ ${r.comicTitle || comicId} 新建 ${r.createdCount || 0} 个章节任务`;
+    log(msg, 'ok');
+    toast(msg, 'ok');
+    await refreshAll();
   } catch (e) {
-    log(`投递失败：${e.message}`, 'err');
+    log(`✗ 投递失败：${e.message}`, 'err');
+    toast(`投递失败：${e.message}`, 'err');
   }
 }
 
-// ── 任务列表 ──────────────────────────────────────────
-function setFilter(btn, state) {
-  filterState = state;
-  document.querySelectorAll('.tabs button[data-state]').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  pageOffset = 0;
-  loadTasks();
+/* ═══════════════════════════════════════════════════════════════
+   任务列表
+   ═══════════════════════════════════════════════════════════════ */
+function buildQuery() {
+  const p = new URLSearchParams();
+  p.set('limit', String(PAGE_SIZE));
+  p.set('offset', String(state.pageOffset));
+  if (state.filterState) p.set('state', state.filterState);
+  if (state.filterComic) p.set('comicId', state.filterComic);
+  return p.toString();
 }
 
 async function loadTasks() {
-  const params = new URLSearchParams();
-  if (filterState) params.set('state', filterState);
-  const comicId = document.getElementById('filter-comic').value.trim();
-  if (comicId) params.set('comicId', comicId);
-  params.set('limit', PAGE_SIZE);
-  params.set('offset', pageOffset);
   try {
-    const r = await api('GET', '/api/tasks?' + params.toString());
-    tasks = r.tasks || [];
-    totalTasks = r.total || 0;
+    const r = await api('GET', `/api/tasks?${buildQuery()}`);
+    state.tasks = r.tasks || r.items || [];
+    state.totalTasks = r.total ?? state.tasks.length;
     renderTasks();
   } catch (e) {
     log(`加载任务失败：${e.message}`, 'err');
@@ -304,188 +833,328 @@ async function loadTasks() {
 }
 
 function renderTasks() {
-  const tb = document.getElementById('task-rows');
-  if (tasks.length === 0) {
-    tb.innerHTML = '<tr><td colspan="6" class="muted" style="padding:20px;text-align:center">没有任务</td></tr>';
+  const rows = $('task-rows');
+  if (state.tasks.length === 0) {
+    rows.innerHTML = `
+      <tr><td colspan="5">
+        <div class="empty">
+          <div class="empty-icon" aria-hidden="true">📭</div>
+          <div>没有匹配的任务</div>
+        </div>
+      </td></tr>`;
   } else {
-    tb.innerHTML = tasks.map(t => {
-      const pct = Math.max(0, Math.min(100, t.progress || 0));
-      const barCls = t.state === 'completed' ? 'done' : (t.state === 'failed' ? 'fail' : '');
-      return `<tr>
-        <td class="ellip" title="${escapeHtml(t.comicTitle)}">${escapeHtml(t.comicTitle || t.comicId)}</td>
-        <td class="ellip" title="${escapeHtml(t.chapterTitle)}">${escapeHtml(t.chapterTitle || t.chapterId)}</td>
-        <td><span class="tag ${t.state}">${t.state}</span></td>
-        <td><span class="bar"><i class="${barCls}" style="width:${pct}%"></i></span> <span class="muted">${t.doneImgCount}/${t.totalImgCount}</span></td>
-        <td>${t.retryCount > 0 ? `<span style="color:#fca5a5">${t.retryCount}</span>` : '0'}</td>
-        <td style="white-space:nowrap">
-          ${t.state === 'downloading' ? `<button class="ghost sm" onclick="taskAction('${t.chapterId}','pause')">暂停</button>` : ''}
-          ${t.state === 'paused' ? `<button class="ghost sm" onclick="taskAction('${t.chapterId}','resume')">继续</button>` : ''}
-          ${(t.state === 'failed' || t.state === 'cancelled') ? `<button class="ghost sm" onclick="retryTask('${t.chapterId}')">重试</button>` : ''}
-          ${(t.state === 'downloading' || t.state === 'pending' || t.state === 'paused') ? `<button class="ghost sm" onclick="taskAction('${t.chapterId}','cancel')">取消</button>` : ''}
-          <button class="ghost sm" onclick="deleteTask('${t.chapterId}')">删除</button>
-        </td>
-      </tr>`;
+    rows.innerHTML = state.tasks.map((t) => {
+      const st = t.state || 'pending';
+      const label = STATE_LABEL[st] || st;
+      const pct = typeof t.progress === 'number' ? t.progress : 0;
+      const actions = [];
+
+      if (st === 'downloading') actions.push(`<button class="icon" onclick="taskAction('${esc(t.chapterId)}','pause')">暂停</button>`);
+      if (st === 'paused') actions.push(`<button class="icon" onclick="taskAction('${esc(t.chapterId)}','resume')">继续</button>`);
+      if (st === 'failed' || st === 'cancelled') actions.push(`<button class="icon" onclick="retryTask('${esc(t.chapterId)}')">重试</button>`);
+      if (st === 'downloading' || st === 'pending' || st === 'paused') {
+        actions.push(`<button class="icon" onclick="taskAction('${esc(t.chapterId)}','cancel')">取消</button>`);
+      }
+      actions.push(`<button class="icon danger" onclick="deleteTask('${esc(t.chapterId)}')">删除</button>`);
+
+      return `
+        <tr>
+          <td>
+            <div class="cell-title" title="${esc(t.comicTitle)}">${esc(t.comicTitle || '—')}</div>
+            <div class="cell-sub" title="${esc(t.chapterTitle)}">${esc(t.chapterTitle || t.chapterId || '')}</div>
+          </td>
+          <td><span class="badge" data-s="${esc(st)}">${esc(label)}</span></td>
+          <td>
+            <div class="progress">
+              <div class="track" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100">
+                <i data-s="${esc(st)}" style="width:${Math.min(100, Math.max(0, pct))}%"></i>
+              </div>
+              <span class="pct">${t.doneImgCount ?? 0}/${t.totalImgCount ?? 0}</span>
+            </div>
+          </td>
+          <td class="cell-num">${t.retryCount ?? 0}</td>
+          <td><div class="cell-actions">${actions.join('')}</div></td>
+        </tr>`;
     }).join('');
   }
-  document.getElementById('task-total').textContent = `共 ${totalTasks} 条`;
-  const page = Math.floor(pageOffset / PAGE_SIZE) + 1;
-  document.getElementById('page-info').textContent = `第 ${page} 页`;
+
+  $('task-total').textContent = state.totalTasks ? `共 ${state.totalTasks} 条` : '';
+  const page = Math.floor(state.pageOffset / PAGE_SIZE) + 1;
+  const pages = Math.max(1, Math.ceil(state.totalTasks / PAGE_SIZE));
+  $('page-info').textContent = `第 ${page} / ${pages} 页`;
+  $('btn-prev').disabled = state.pageOffset === 0;
+  $('btn-next').disabled = state.pageOffset + PAGE_SIZE >= state.totalTasks;
 }
 
-function pagePrev() { if (pageOffset >= PAGE_SIZE) { pageOffset -= PAGE_SIZE; loadTasks(); } }
-function pageNext() { if (pageOffset + PAGE_SIZE < totalTasks) { pageOffset += PAGE_SIZE; loadTasks(); } }
+function setFilter(btn, st) {
+  state.filterState = st;
+  state.pageOffset = 0;
+  document.querySelectorAll('#tabs button[data-state]').forEach((b) => {
+    const on = b === btn;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', String(on));
+  });
+  loadTasks();
+}
 
+function onFilterInput() {
+  clearTimeout(state.filterTimer);
+  state.filterTimer = setTimeout(() => {
+    state.filterComic = $('filter-comic').value.trim();
+    state.pageOffset = 0;
+    loadTasks();
+  }, 300);
+}
+
+function pagePrev() {
+  if (state.pageOffset >= PAGE_SIZE) { state.pageOffset -= PAGE_SIZE; loadTasks(); }
+}
+function pageNext() {
+  if (state.pageOffset + PAGE_SIZE < state.totalTasks) { state.pageOffset += PAGE_SIZE; loadTasks(); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   任务操作
+   ═══════════════════════════════════════════════════════════════ */
 async function taskAction(chapterId, action) {
   try {
     await api('POST', `/api/download/task/${encodeURIComponent(chapterId)}/${action}`, {});
     log(`${action} ${chapterId} 成功`, 'ok');
-    loadTasks();
-  } catch (e) { log(`${action} 失败：${e.message}`, 'err'); }
+    await loadTasks();
+  } catch (e) {
+    log(`${action} 失败：${e.message}`, 'err');
+    toast(`${action} 失败：${e.message}`, 'err');
+  }
 }
+
 async function retryTask(chapterId) {
   try {
     const r = await api('POST', `/api/tasks/${encodeURIComponent(chapterId)}/retry`, {});
-    log(`重试 ${chapterId}：重置 ${r.resetImgCount} 张，剩 ${r.unfinishedImgCount} 张`, 'ok');
-    loadTasks();
-  } catch (e) { log(`重试失败：${e.message}`, 'err'); }
+    const msg = `重试 ${chapterId}：重置 ${r.resetImgCount ?? 0} 张，剩 ${r.unfinishedImgCount ?? 0} 张`;
+    log(msg, 'ok');
+    toast(msg, 'ok');
+    await loadTasks();
+  } catch (e) {
+    log(`重试失败：${e.message}`, 'err');
+    toast(`重试失败：${e.message}`, 'err');
+  }
 }
+
 async function deleteTask(chapterId) {
-  if (!confirm('确认删除任务 ' + chapterId + '？')) return;
+  if (!confirm(`确认删除任务 ${chapterId}？此操作不可撤销。`)) return;
   try {
     await api('DELETE', `/api/tasks/${encodeURIComponent(chapterId)}`);
     log(`已删除 ${chapterId}`, 'ok');
-    loadTasks();
-    loadStats();
-  } catch (e) { log(`删除失败：${e.message}`, 'err'); }
+    await refreshAll();
+  } catch (e) {
+    log(`删除失败：${e.message}`, 'err');
+    toast(`删除失败：${e.message}`, 'err');
+  }
 }
 
-// ── 统计 ──────────────────────────────────────────────
+/* ═══════════════════════════════════════════════════════════════
+   统计与清理
+   ═══════════════════════════════════════════════════════════════ */
+const STAT_SPEC = [
+  ['total', '总任务', ''],
+  ['downloading', '下载中', 'active'],
+  ['pending', '等待', ''],
+  ['paused', '暂停', 'warn'],
+  ['completed', '完成', 'ok'],
+  ['failed', '失败', 'bad'],
+  ['cancelled', '取消', ''],
+];
+
 async function loadStats() {
   try {
     const s = await api('GET', '/api/tasks/stats');
-    const items = [
-      ['总任务', s.total], ['等待', s.pending], ['下载中', s.downloading],
-      ['暂停', s.paused], ['完成', s.completed], ['失败', s.failed], ['取消', s.cancelled],
-    ];
-    document.getElementById('stats').innerHTML = items.map(([l, n]) =>
-      `<div class="stat"><div class="n">${n ?? 0}</div><div class="l">${l}</div></div>`).join('');
-  } catch (e) { log(`统计失败：${e.message}`, 'err'); }
+    state.stats = s;
+    $('stats').innerHTML = STAT_SPEC.map(([key, label, tone]) => `
+      <div class="stat"${tone ? ` data-tone="${tone}"` : ''}>
+        <span class="n">${s[key] ?? 0}</span>
+        <span class="k">${label}</span>
+      </div>`).join('');
+
+    const counts = {
+      '': s.total ?? 0,
+      downloading: s.downloading ?? 0,
+      pending: s.pending ?? 0,
+      paused: s.paused ?? 0,
+      completed: s.completed ?? 0,
+      failed: s.failed ?? 0,
+    };
+    for (const [k, v] of Object.entries(counts)) {
+      const el = $(`c-${k || 'all'}`);
+      if (el) el.textContent = v > 0 ? v : '';
+    }
+  } catch (e) {
+    log(`统计失败：${e.message}`, 'err');
+  }
 }
 
 async function purgeTasks() {
   const days = prompt('清理多少天前的终态任务？', '30');
   if (days === null) return;
+  const retentionDays = parseInt(days, 10) || 30;
   try {
-    const r = await api('POST', '/api/tasks/purge', { retentionDays: parseInt(days, 10) || 30 });
-    log(`已清理 ${r.removed} 条（保留 ${r.retentionDays} 天）`, 'ok');
-    loadTasks();
-    loadStats();
-  } catch (e) { log(`清理失败：${e.message}`, 'err'); }
+    const r = await api('POST', '/api/tasks/purge', { retentionDays });
+    const msg = `已清理 ${r.removed ?? 0} 条（保留 ${r.retentionDays ?? retentionDays} 天）`;
+    log(msg, 'ok');
+    toast(msg, 'ok');
+    await refreshAll();
+  } catch (e) {
+    log(`清理失败：${e.message}`, 'err');
+    toast(`清理失败：${e.message}`, 'err');
+  }
 }
 
-// ── 配置 ──────────────────────────────────────────────
-const CONFIG_LABELS = {
-  baseDir: '保存目录', dirFmt: '目录格式', chapterConcurrency: '章节并发',
-  imgConcurrency: '图片并发', imgDownloadIntervalSec: '图片间隔(秒)',
-  imgRetryTimes: '图片重试次数', imgRetryIntervalSec: '重试间隔(秒)',
-  chapterDownloadIntervalSec: '章节间隔(秒)', useCbz: '导出 CBZ',
-};
+/* ═══════════════════════════════════════════════════════════════
+   配置
+   ═══════════════════════════════════════════════════════════════ */
+const CONFIG_SKIP = new Set(['token', 'username', 'password']);
+
 async function loadConfig() {
   try {
-    configObj = await api('GET', '/api/config');
-    const skip = new Set(['token', 'username', 'password']);
-    const entries = Object.entries(configObj).filter(([k, v]) => !skip.has(k) && (typeof v !== 'object' || v === null));
-    document.getElementById('config-fields').innerHTML = entries.map(([k, v]) => {
+    const cfg = await api('GET', '/api/config');
+    state.config = cfg;
+
+    const entries = Object.entries(cfg).filter(([k, v]) =>
+      !CONFIG_SKIP.has(k) && (typeof v !== 'object' || v === null));
+
+    $('config-fields').innerHTML = entries.map(([k, v]) => {
       const label = CONFIG_LABELS[k] || k;
-      const type = typeof v === 'number' ? 'number' : (typeof v === 'boolean' ? 'checkbox' : 'text');
-      if (type === 'checkbox') {
-        return `<div class="field"><label><input type="checkbox" data-k="${k}" ${v ? 'checked' : ''} style="width:auto;margin-right:6px" />${label}</label></div>`;
+      if (typeof v === 'boolean') {
+        return `<div class="field">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" data-k="${esc(k)}" ${v ? 'checked' : ''} />
+            <span>${esc(label)}</span>
+          </label>
+        </div>`;
       }
-      return `<div class="field"><label>${label}</label><input type="${type}" data-k="${k}" value="${v ?? ''}" /></div>`;
+      const type = typeof v === 'number' ? 'number' : 'text';
+      return `<div class="field">
+        <label for="cfg-${esc(k)}">${esc(label)}</label>
+        <input id="cfg-${esc(k)}" type="${type}" data-k="${esc(k)}" value="${esc(v ?? '')}" />
+      </div>`;
     }).join('');
-    log('配置已载入');
-  } catch (e) { log(`载入配置失败：${e.message}`, 'err'); }
+  } catch (e) {
+    log(`载入配置失败：${e.message}`, 'err');
+  }
 }
+
 async function saveConfig() {
-  if (!configObj) return;
-  const next = JSON.parse(JSON.stringify(configObj));
-  document.querySelectorAll('#config-fields [data-k]').forEach(el => {
+  if (!state.config) return;
+  const next = JSON.parse(JSON.stringify(state.config));
+
+  document.querySelectorAll('#config-fields [data-k]').forEach((el) => {
     const k = el.dataset.k;
     if (el.type === 'checkbox') next[k] = el.checked;
     else if (el.type === 'number') next[k] = el.value === '' ? null : Number(el.value);
     else next[k] = el.value;
   });
+
   try {
     await api('POST', '/api/config', next);
-    configObj = next;
-    log('配置已保存（部分项需重启任务生效）', 'ok');
-  } catch (e) { log(`保存失败：${e.message}`, 'err'); }
+    state.config = next;
+    log('配置已保存', 'ok');
+    toast('配置已保存（部分项需重启任务生效）', 'ok');
+  } catch (e) {
+    log(`保存失败：${e.message}`, 'err');
+    toast(`保存失败：${e.message}`, 'err');
+  }
 }
 
-// ── WebSocket ─────────────────────────────────────────
+/* ═══════════════════════════════════════════════════════════════
+   WebSocket 实时事件
+   ═══════════════════════════════════════════════════════════════ */
+function setConn(stateName, text) {
+  $('conn').dataset.state = stateName;
+  $('conn-text').textContent = text;
+}
+
 function connectWs() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/api/ws`);
+  let ws;
+  try { ws = new WebSocket(`${proto}://${location.host}/api/ws`); }
+  catch (e) { scheduleReconnect(); return; }
+  state.ws = ws;
+
   ws.onopen = () => {
-    document.getElementById('ws-dot').className = 'dot on';
-    document.getElementById('ws-text').textContent = '实时已连接';
+    state.wsRetry = 0;
+    setConn('live', '实时已连接');
   };
+
   ws.onclose = () => {
-    document.getElementById('ws-dot').className = 'dot off';
-    document.getElementById('ws-text').textContent = '已断开，3 秒后重连';
-    setTimeout(connectWs, 3000);
+    setConn('down', '已断开');
+    scheduleReconnect();
   };
-  ws.onerror = () => { document.getElementById('ws-dot').className = 'dot off'; };
+
+  ws.onerror = () => setConn('down', '连接异常');
+
   ws.onmessage = (ev) => {
     let msg;
     try { msg = JSON.parse(ev.data); } catch (e) { return; }
-    const topic = msg.topic;
-    const payload = msg.payload;
+    const { topic, payload } = msg;
+
     if (topic === 'task-snapshot-event' && Array.isArray(payload)) {
-      tasks = payload;
+      state.tasks = payload;
       renderTasks();
       return;
     }
     if (topic === 'download-task-event') {
       applyTaskEvent(payload);
-      return;
     }
   };
+}
+
+function scheduleReconnect() {
+  const delay = Math.min(1000 * 2 ** state.wsRetry, 15000);
+  state.wsRetry++;
+  setConn('down', `已断开，${Math.round(delay / 1000)} 秒后重连`);
+  setTimeout(connectWs, delay);
 }
 
 function applyTaskEvent(ev) {
   if (!ev || !ev.event) return;
   const d = ev.data || {};
+
   if (ev.event === 'Create') {
     const ch = d.chapterInfo || {};
-    log(`新建任务：${d.comic?.title || ''} / ${ch.title || ch.chapterId || ''}`);
+    log(`新建任务：${d.comic?.title || ''} / ${ch.title || ch.chapterId || ''}`, 'info');
     loadStats();
     loadTasks();
     return;
   }
+
   if (ev.event === 'Update') {
-    const idx = tasks.findIndex(t => t.chapterId === d.chapterId);
-    if (idx >= 0) {
-      tasks[idx].state = d.state;
-      tasks[idx].doneImgCount = d.downloadedImgCount;
-      tasks[idx].totalImgCount = d.totalImgCount;
-      if (d.retryCount !== undefined) tasks[idx].retryCount = d.retryCount;
-      tasks[idx].progress = d.totalImgCount > 0
-        ? Math.round((d.downloadedImgCount / d.totalImgCount) * 1000) / 10 : 0;
+    const t = state.tasks.find((x) => x.chapterId === d.chapterId);
+    if (t) {
+      t.state = d.state;
+      t.doneImgCount = d.downloadedImgCount;
+      t.totalImgCount = d.totalImgCount;
+      if (d.retryCount !== undefined) t.retryCount = d.retryCount;
+      if (d.lastError !== undefined) t.lastError = d.lastError;
+      t.progress = d.totalImgCount > 0
+        ? Math.round((d.downloadedImgCount / d.totalImgCount) * 1000) / 10
+        : 0;
       renderTasks();
     }
     if (d.state === 'completed' || d.state === 'failed') {
-      log(`任务 ${d.state}：${d.chapterId}（${d.downloadedImgCount}/${d.totalImgCount}）`,
+      log(`任务${STATE_LABEL[d.state] || d.state}：${d.chapterId}（${d.downloadedImgCount}/${d.totalImgCount}）`,
           d.state === 'completed' ? 'ok' : 'err');
       loadStats();
     }
   }
 }
 
-// ── 初始化 ────────────────────────────────────────────
+/* ═══════════════════════════════════════════════════════════════
+   初始化
+   ═══════════════════════════════════════════════════════════════ */
 async function refreshAll() {
   await Promise.all([loadTasks(), loadStats()]);
 }
+
+log('控制台已就绪', 'info');
 loadConfig();
 refreshAll();
 connectWs();
