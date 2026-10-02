@@ -9,6 +9,7 @@ use walkdir::WalkDir;
 
 use crate::{
     context::AppContext,
+    export::collect_images,
     extensions::WalkDirEntryExt,
     jm_client::IMAGE_DOMAIN,
     responses::{GetComicRespData, RelatedListRespData},
@@ -244,14 +245,26 @@ impl Comic {
                 .context(format!("`{}`没有`chapterId`字段", metadata_path.display()))?
                 .to_string();
 
+            let parent = metadata_path
+                .parent()
+                .context(format!("`{}`没有父目录", metadata_path.display()))?;
+
+            // 有 `章节元数据.json` 不等于下载完成：下载中断会留下「目录 + 元数据
+            // 但零张图片」的空壳残骸。若把它当作已下载，投递时会报「没有可下载
+            // 的章节」、导出时会报「没有找到任何图片」——两条路同时堵死，且都指向
+            // 错误的原因。所以必须以「目录里真有图片」作为已下载的唯一证据。
+            let has_images = collect_images(parent)
+                .map(|imgs| !imgs.is_empty())
+                .unwrap_or(false);
+            if !has_images {
+                continue;
+            }
+
             if let Some(chapter_info) = self
                 .chapter_infos
                 .iter_mut()
                 .find(|chapter| chapter.chapter_id == chapter_id)
             {
-                let parent = metadata_path
-                    .parent()
-                    .context(format!("`{}`没有父目录", metadata_path.display()))?;
                 chapter_info.chapter_download_dir = Some(parent.to_path_buf());
                 chapter_info.is_downloaded = Some(true);
             }

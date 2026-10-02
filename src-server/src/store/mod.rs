@@ -21,5 +21,5 @@ pub mod migrations;
 pub mod repo;
 pub mod types;
 
-pub use repo::{ImageRepo, TaskRepo, TaskStats};
+pub use repo::{ImageRepo, TaskConflict, TaskRepo, TaskStats};
 pub use types::{DbImage, DbImageState, DbTask, DbTaskState, Store};

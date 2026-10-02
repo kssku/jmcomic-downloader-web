@@ -449,6 +449,36 @@ tbody tr:last-child td { border-bottom: none; }
 /* ═══════════════════════════════════════════════════════════════
    Toast
    ═══════════════════════════════════════════════════════════════ */
+/* ══ 导出列表 ══ */
+.export-list { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+.export-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  border-radius: var(--r-md);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  font-size: 12.5px;
+  transition: border-color 0.15s;
+}
+.export-item:hover { border-color: var(--border-strong); }
+.export-item .fname {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-0);
+}
+.export-item .fmeta {
+  flex-shrink: 0;
+  color: var(--fg-2);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.export-list .empty { padding: 20px; }
+
 .toasts {
   position: fixed;
   right: 20px;
@@ -556,6 +586,22 @@ tbody tr:last-child td { border-bottom: none; }
           <input type="text" id="one-chapter" spellcheck="false" placeholder="留空下载整本" />
         </div>
         <button onclick="submitOne()">投递</button>
+      </section>
+
+      <section class="card">
+        <h2>单行本导出</h2>
+        <div class="field">
+          <label for="export-comic">漫画 ID</label>
+          <input type="text" id="export-comic" spellcheck="false" placeholder="1461316" />
+          <p class="hint">把整本已下载的全部章节合成一个 CBZ。缺章会被拒绝并提示还差几章。</p>
+        </div>
+        <div class="row">
+          <button id="btn-export" onclick="exportComic()">合成单行本</button>
+          <button class="ghost" onclick="loadExports()">刷新列表</button>
+          <div class="spacer"></div>
+          <span class="muted" id="export-msg" aria-live="polite"></span>
+        </div>
+        <div id="export-list" class="export-list"></div>
       </section>
 
       <section class="card">
@@ -1009,6 +1055,67 @@ async function purgeTasks() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   单行本导出
+   ═══════════════════════════════════════════════════════════════ */
+
+/** 把整本漫画合成一个 CBZ。缺章时后端会拒绝并返回还差几章。 */
+async function exportComic() {
+  const comicId = $('export-comic').value.trim();
+  if (!comicId) {
+    toast('请先填漫画 ID', 'warn');
+    $('export-comic').focus();
+    return;
+  }
+
+  const btn = $('btn-export');
+  btn.disabled = true;
+  $('export-msg').textContent = '合成中…';
+  log(`开始合成单行本：${comicId}`, 'info');
+
+  try {
+    const r = await api('POST', `/api/export/comic/${encodeURIComponent(comicId)}`);
+    const mb = (r.fileSize / 1024 / 1024).toFixed(1);
+    const msg = `《${r.comicTitle}》${r.pageCount} 页 / ${mb} MB${r.overwritten ? '（已覆盖）' : ''}`;
+    $('export-msg').textContent = '完成';
+    log(`单行本导出成功：${msg}`, 'ok');
+    toast(`导出成功：${msg}`, 'ok');
+    await loadExports();
+  } catch (e) {
+    // 缺章是业务约束，不是系统故障 —— 单独用警告色，别让人以为服务挂了
+    const isIncomplete = /还有 \d+ 章未下载/.test(e.message || '');
+    $('export-msg').textContent = isIncomplete ? '缺章' : '失败';
+    log(`导出失败：${e.message}`, isIncomplete ? 'warn' : 'err');
+    toast(`导出失败：${e.message}`, isIncomplete ? 'warn' : 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/** 拉取导出目录下已有的 CBZ 列表。 */
+async function loadExports() {
+  const box = $('export-list');
+  try {
+    const items = await api('GET', '/api/export/list');
+    if (!items.length) {
+      box.innerHTML = '<div class="empty"><div class="empty-text">还没有导出过单行本</div></div>';
+      return;
+    }
+    box.innerHTML = items.map((it) => {
+      const mb = (it.fileSize / 1024 / 1024).toFixed(1);
+      const when = it.modifiedAt
+        ? new Date(it.modifiedAt * 1000).toLocaleString('zh-CN', { hour12: false })
+        : '—';
+      return `<div class="export-item">
+        <div class="fname" title="${esc(it.filePath)}">${esc(it.fileName)}</div>
+        <div class="fmeta">${mb} MB · ${esc(when)}</div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    box.innerHTML = `<div class="empty"><div class="empty-text">列表读取失败：${esc(e.message)}</div></div>`;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
    配置
    ═══════════════════════════════════════════════════════════════ */
 const CONFIG_SKIP = new Set(['token', 'username', 'password']);
@@ -1151,7 +1258,7 @@ function applyTaskEvent(ev) {
    初始化
    ═══════════════════════════════════════════════════════════════ */
 async function refreshAll() {
-  await Promise.all([loadTasks(), loadStats()]);
+  await Promise.all([loadTasks(), loadStats(), loadExports()]);
 }
 
 log('控制台已就绪', 'info');

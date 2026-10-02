@@ -11,6 +11,7 @@ pub mod download_manager;
 pub mod errors;
 pub mod event_bus;
 pub mod events;
+pub mod export;
 pub mod extensions;
 pub mod logger;
 pub mod jm_client;

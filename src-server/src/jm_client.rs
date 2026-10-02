@@ -43,7 +43,7 @@ pub const API_DOMAIN_5: &str = "www.cdn-mspjmapiproxy.xyz";
 pub const IMAGE_DOMAIN: &str = "cdn-msp2.jmapiproxy2.cc";
 
 /// 请求超时（与 pica 一致，放宽以吸收抖动）。
-const API_REQUEST_TIMEOUT_SECS: u64 = 15;
+const API_REQUEST_TIMEOUT_SECS: u64 = 60;
 const API_RETRY_TOTAL_SECS: u64 = 30;
 
 #[derive(Debug, Clone, PartialEq)]

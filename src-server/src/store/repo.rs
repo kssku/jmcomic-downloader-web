@@ -3,10 +3,35 @@
 //! 所有写操作都显式维护 `updated_at`，因为青龙侧要靠它做增量拉取。
 
 use anyhow::Context;
+use rusqlite::OptionalExtension;
 
 use super::types::{
     now_ts, DbImage, DbImageState, DbTask, DbTaskState, Store,
 };
+
+/// 同一个 `chapter_id` 已归属于另一个漫画。
+///
+/// jm 的 `chapter_id` 只在 album 内唯一，跨 album 会重复；而
+/// `download_task` 的主键是 `chapter_id`。当投递的漫画里某个章节 id
+/// 已被另一个 `comic_id` 占用时，必须拒绝而不是覆盖。
+#[derive(Debug, Clone)]
+pub struct TaskConflict {
+    pub chapter_id: String,
+    pub existing_comic_id: String,
+    pub incoming_comic_id: String,
+}
+
+impl std::fmt::Display for TaskConflict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "章节`{}`已归属于漫画`{}`，不能再归属漫画`{}`",
+            self.chapter_id, self.existing_comic_id, self.incoming_comic_id
+        )
+    }
+}
+
+impl std::error::Error for TaskConflict {}
 
 /// 各状态的任务计数。
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -27,6 +52,12 @@ pub struct TaskRepo;
 impl TaskRepo {
     /// 写入一个新任务。已存在则**保留原状态**（幂等），避免重复提交把
     /// 一个正在下载的任务打回 `pending`。
+    ///
+    /// 同 `chapter_id` 已归属于**另一个漫画**（`comic_id` 不同）时，返回
+    /// `Err(TaskConflict)`：同一个章节只属于一个漫画，不能被另一个 album
+    /// 静默改写。jm 中 `chapter_id` 仅在 album 内唯一，跨 album 会重复
+    /// （例如「衣冠禽獸」第 10 话 id 恰好等于镜像条目 `1469067`），
+    /// 若放任覆盖，会把主条目的任务行改成镜像条目的标题与目录。
     pub fn upsert_new(store: &Store, task: &DbTask) -> anyhow::Result<()> {
         store.with_conn(|conn| {
             conn.execute(
@@ -43,6 +74,10 @@ impl TaskRepo {
                     chapter_order = excluded.chapter_order,
                     dir_fmt       = excluded.dir_fmt,
                     updated_at    = excluded.updated_at
+                  -- 关键守卫：同一个 chapter_id 只属于一个漫画。
+                  -- 若已存在的行属于另一个 comic_id，则本次 DO UPDATE
+                  -- 不生效（changes()==0），由下面判定为冲突并报错。
+                  WHERE download_task.comic_id = excluded.comic_id
                 "#,
                 rusqlite::params![
                     task.chapter_id,
@@ -61,6 +96,29 @@ impl TaskRepo {
                 ],
             )
             .context("写入 download_task 失败")?;
+
+            // changes()==0 有两种可能：冲突被守卫拦下，或写入的字段与
+            // 原值完全相同（幂等重放）。前者才是冲突，用一次精确查询区分。
+            let changed = conn.changes();
+            if changed == 0 {
+                let existing_comic_id: Option<String> = conn
+                    .query_row(
+                        "SELECT comic_id FROM download_task WHERE chapter_id = ?1",
+                        rusqlite::params![task.chapter_id],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .context("查询 download_task 归属失败")?;
+                if let Some(existing) = existing_comic_id {
+                    if existing != task.comic_id {
+                        return Err(anyhow::Error::new(TaskConflict {
+                            chapter_id: task.chapter_id.clone(),
+                            existing_comic_id: existing,
+                            incoming_comic_id: task.comic_id.clone(),
+                        }));
+                    }
+                }
+            }
             Ok(())
         })
     }

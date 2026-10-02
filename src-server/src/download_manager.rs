@@ -16,6 +16,7 @@ use tokio::task::JoinSet;
 use tokio::time::sleep;
 
 use crate::context::AppContext;
+use crate::export::collect_images;
 use crate::jm_client::IMAGE_DOMAIN;
 use crate::event_bus::topics;
 use crate::events::DownloadTaskEvent;
@@ -647,6 +648,10 @@ impl DownloadTask {
             }
         };
 
+        // 本次实际有待下载的图片数。为 0 说明本章图片在此前已全部下完
+        // （正式目录里已有内容），本次只是空转一圈。
+        let pending_count = pending_images.len();
+
         let mut join_set = JoinSet::new();
         for image in pending_images {
             #[allow(clippy::cast_sign_loss)]
@@ -685,7 +690,57 @@ impl DownloadTask {
             self.set_failed(&err_title, err_msg);
             return;
         }
-        // 至此，章节的图片全部下载成功
+        // 至此，章节的图片全部下载成功。
+        //
+        // 重命名前要确认临时目录里真有图片，否则拒绝——防止空目录覆盖掉
+        // 正式目录里已有的内容。但「临时目录为空」有两种截然不同的语义：
+        //
+        //   A. 本次没有待下图片（`pending_count == 0`）：图片早就下完在正式
+        //      目录里了，本次只是空转。此时临时目录空是正常的，应当直接判为
+        //      完成返回，绝不能报失败。
+        //   B. 本次下过图片（`pending_count > 0`）但临时目录仍为空：这才是
+        //      真异常（写入失败/被清理），必须拒绝重命名。
+        let temp_has_images = collect_images(&temp_download_dir)
+            .map(|imgs| !imgs.is_empty())
+            .unwrap_or(false);
+        if !temp_has_images {
+            if pending_count == 0 {
+                // 情况 A：无事可做，本章内容早已在正式目录。判完成即可。
+                //
+                // 但空转留下的空临时目录必须清掉——否则每投递一次就残留
+                // 一个 `.下载中-N`，久了会堆一片（曾积累 19 个）。
+                if temp_download_dir.exists() {
+                    if let Err(err) = std::fs::remove_dir_all(&temp_download_dir) {
+                        tracing::warn!(
+                            comic_title,
+                            chapter_title,
+                            temp_dir = %temp_download_dir.display(),
+                            err = %err,
+                            "清理空转产生的空临时目录失败，忽略"
+                        );
+                    }
+                }
+                tracing::trace!(
+                    comic_title,
+                    chapter_title,
+                    "本次无待下载图片，章节内容已在正式目录，直接标记完成"
+                );
+                self.set_state(DownloadTaskState::Completed);
+                return;
+            }
+
+            // 情况 B：本次下了图片却写不进去，真异常。
+            let err_title = format!("`{comic_title} - {chapter_title}`临时目录中没有图片");
+            let err_msg = format!(
+                "本次下载了`{pending_count}`张图片，但临时目录`{}`里没有任何图片，拒绝重命名，避免覆盖已有章节内容",
+                temp_download_dir.display()
+            );
+            tracing::error!(err_title, message = err_msg);
+
+            self.set_failed(&err_title, err_msg);
+            return;
+        }
+
         if let Err(err) = self.rename_temp_download_dir(&temp_download_dir) {
             let err_title = format!("`{comic_title} - {chapter_title}`重命名临时下载目录失败");
             let string_chain = err.to_string_chain();
@@ -781,10 +836,28 @@ impl DownloadTask {
             .parse::<i64>()
             .context(format!("章节id `{chapter_id}` 不是合法的 i64"))?;
 
-        let (scramble_id, chapter_resp_data) = tokio::try_join!(
+        let t0 = std::time::Instant::now();
+        let (scramble_res, chapter_res) = tokio::join!(
             jm_client.get_scramble_id(chapter_id_i64),
             jm_client.get_chapter(chapter_id_i64),
-        )?;
+        );
+        tracing::info!(
+            comic_title,
+            chapter_title,
+            chapter_id,
+            elapsed_ms = t0.elapsed().as_millis() as u64,
+            scramble_ok = scramble_res.is_ok(),
+            chapter_ok = chapter_res.is_ok(),
+            "get_img_urls 并发请求完成"
+        );
+        let scramble_id = scramble_res.map_err(|e| {
+            tracing::error!(chapter_id, err = %e, "get_scramble_id 失败");
+            e
+        })?;
+        let chapter_resp_data = chapter_res.map_err(|e| {
+            tracing::error!(chapter_id, err = %e, "get_chapter 失败");
+            e
+        })?;
 
         let urls_with_block_num: Vec<(String, u32)> = chapter_resp_data
             .images
@@ -935,8 +1008,15 @@ impl DownloadTask {
             .context("`chapter_download_dir`字段为`None`")?;
         let metadata_path = chapter_download_dir.join("章节元数据.json");
 
-        std::fs::create_dir_all(chapter_download_dir)
-            .context(format!("创建目录`{}`失败", chapter_download_dir.display()))?;
+        // 正式章节目录应由 `rename_temp_download_dir` 建立（它带着图片一起搬过来）。
+        // 这里若目录不存在，说明重命名没发生过——此时**不能**凭空 create_dir_all，
+        // 否则会造出「有目录、有元数据、零张图片」的空壳，污染后续的已下载判定。
+        if !chapter_download_dir.is_dir() {
+            return Err(anyhow!(
+                "章节目录`{}`不存在，拒绝写入元数据（应先完成临时目录重命名）",
+                chapter_download_dir.display()
+            ));
+        }
 
         let chapter_json =
             serde_json::to_string_pretty(&chapter_info).context("将ChapterInfo序列化为json失败")?;

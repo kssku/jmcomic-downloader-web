@@ -41,6 +41,7 @@ tracing-appender = { version = "0.2.3" }
 notify = { version = "8.0.0" }
 strfmt = { version = "0.2.4" }
 walkdir = { version = "2.5.0" }
+zip = { version = "2.2", default-features = false }
 indexmap = { version = "2.9.0" }
 
 # ── Web 层（新增）──────────────────────────────────────────

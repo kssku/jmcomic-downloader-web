@@ -162,6 +162,18 @@ pub async fn download_comic(app: &AppContext, comic_id: String) -> CommandResult
 // 按 ID 下载（面向脚本 / 自动化调用）
 // ════════════════════════════════════════════════════════════════
 
+/// 判断一个错误链里是否包含 `TaskConflict`。
+///
+/// `anyhow` 把冲突包在错误链里，`to_string()` 拿不到原始类型，
+/// 所以必须沿 `chain()` 逐层 `downcast_ref`。
+fn is_task_conflict(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<crate::store::TaskConflict>()
+            .is_some()
+    })
+}
+
 /// `download_by_id` 的返回结果。字段全部 camelCase，方便脚本直接解析。
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -176,6 +188,8 @@ pub struct DownloadByIdResult {
     pub skipped_chapters: Vec<String>,
     /// 因「任务已存在」而未重复创建的章节 ID 列表。
     pub already_running_chapters: Vec<String>,
+    /// 因章节ID已归属另一本漫画而被拒绝创建的章节 ID 列表。
+    pub conflicted_chapters: Vec<String>,
     /// 本次成功创建的任务数。
     pub created_count: u32,
 }
@@ -238,6 +252,7 @@ pub async fn download_by_id(
             created_chapters,
             skipped_chapters: Vec::new(),
             already_running_chapters,
+            conflicted_chapters: Vec::new(),
         });
     }
 
@@ -245,6 +260,7 @@ pub async fn download_by_id(
     let mut created_chapters = Vec::new();
     let mut skipped_chapters = Vec::new();
     let mut already_running_chapters = Vec::new();
+    let mut conflicted_chapters = Vec::new();
 
     for chapter_info in &comic.chapter_infos {
         let chapter_id = chapter_info.chapter_id.clone();
@@ -260,8 +276,20 @@ pub async fn download_by_id(
             Err(err) if err.to_string().contains("已存在") => {
                 already_running_chapters.push(chapter_id);
             }
+            // 「章节已归属另一本漫画」是数据层冲突，不是临时故障：
+            // 归入 already_running 语义上更接近「这本拿不到这一章」，
+            // 但为了不误导成「任务正在跑」，单独计入 conflicted。
+            Err(err) if is_task_conflict(&err) => {
+                tracing::warn!(
+                    comic_title = %comic_title,
+                    chapter_id = %chapter_id,
+                    error = %err,
+                    "按ID下载：章节已归属另一本漫画，已跳过"
+                );
+                conflicted_chapters.push(chapter_id);
+            }
             Err(err) => {
-                // 单章创建失败不中断整本，记录后继续
+                // 其余单章失败不中断整本，记录后继续
                 tracing::warn!(
                     comic_title = %comic_title,
                     chapter_id = %chapter_id,
@@ -272,9 +300,21 @@ pub async fn download_by_id(
         }
     }
 
+    // 一章都没建成时，错误信息要能区分三种成因，否则用户只会看到
+    // 「全部已下载」而完全不知道其实是章节 id 撞了另一本漫画。
     if created_chapters.is_empty() && already_running_chapters.is_empty() {
-        let err = anyhow!("漫画`{comic_title}`没有可下载的章节（全部已下载）");
-        return Err(CommandError::from("按ID下载漫画失败", err));
+        if !conflicted_chapters.is_empty() {
+            let err = anyhow!(
+                "漫画`{comic_title}`的 {} 个章节ID已被其他漫画占用，无法创建任务：{}",
+                conflicted_chapters.len(),
+                conflicted_chapters.join(", ")
+            );
+            return Err(CommandError::from("按ID下载漫画失败", err));
+        }
+        if !skipped_chapters.is_empty() {
+            let err = anyhow!("漫画`{comic_title}`没有可下载的章节（全部已下载）");
+            return Err(CommandError::from("按ID下载漫画失败", err));
+        }
     }
 
     tracing::debug!(
@@ -292,6 +332,7 @@ pub async fn download_by_id(
         created_chapters,
         skipped_chapters,
         already_running_chapters,
+        conflicted_chapters,
     })
 }
 
@@ -715,6 +756,130 @@ pub fn delete_task(app: &AppContext, chapter_id: &str) -> CommandResult<()> {
 
     tracing::info!(chapter_id, "已删除下载任务记录");
     Ok(())
+}
+
+// ════════════════════════════════════════════════════════════════
+// CBZ 导出（单行本）
+// ════════════════════════════════════════════════════════════════
+
+/// 把整本漫画合成一个单行本 CBZ。
+///
+/// **要求全部章节已下载**：缺章直接拒绝，错误信息里带上还差几章。
+/// 这是刻意的——缺章的单行本会让阅读器用户以为漫画本身不完整。
+///
+/// 走 `spawn_blocking`：合成一本上千张图的 CBZ 是纯 CPU/IO 活，
+/// 会阻塞几十秒，不能占着 axum 的 async worker。
+pub async fn export_comic_cbz(
+    app: &AppContext,
+    comic_id: String,
+) -> CommandResult<crate::export::ExportResult> {
+    let comic = utils::get_comic(app, &comic_id)
+        .await
+        .context(format!("获取ID为`{comic_id}`的漫画失败"))
+        .map_err(|err| CommandError::from("导出单行本失败", err))?;
+
+    let export_dir = app.get_config().read().export_dir.clone();
+    let comic_title = comic.name.clone();
+
+    let result = tokio::task::spawn_blocking(move || {
+        crate::export::export_comic_cbz(&comic, &export_dir)
+    })
+    .await
+    .map_err(|err| CommandError::from("导出单行本失败", anyhow!(err)))?
+    .map_err(|err| {
+        CommandError::from(
+            "导出单行本失败",
+            err.context(format!("漫画`{comic_title}`导出 CBZ 失败")),
+        )
+    })?;
+
+    tracing::info!(
+        comic_id = %result.comic_id,
+        cbz_path = %result.cbz_path.display(),
+        page_count = result.page_count,
+        file_size = result.file_size,
+        "单行本导出成功"
+    );
+
+    Ok(result)
+}
+
+/// 列出导出目录下所有已生成的 CBZ。
+///
+/// 返回 `(文件名, 字节大小, 修改时间 Unix 秒)`，按修改时间倒序。
+/// 只扫一层目录，不递归——导出产物就是扁平的 `{导出目录}/{漫画名}.cbz`。
+pub fn list_exported_cbz(app: &AppContext) -> CommandResult<Vec<ExportedCbz>> {
+    let export_dir = app.get_config().read().export_dir.clone();
+
+    if !export_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let mut items: Vec<ExportedCbz> = Vec::new();
+    let entries = std::fs::read_dir(&export_dir)
+        .context(format!("读取导出目录`{}`失败", export_dir.display()))
+        .map_err(|err| CommandError::from("列出导出文件失败", err))?;
+
+    for entry in entries {
+        let entry = entry
+            .context("遍历导出目录失败")
+            .map_err(|err| CommandError::from("列出导出文件失败", err))?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let is_cbz = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("cbz"));
+        if !is_cbz {
+            continue;
+        }
+
+        let meta = match entry.metadata() {
+            Ok(m) => m,
+            Err(err) => {
+                tracing::warn!(path = %path.display(), message = %err, "读取 CBZ 元信息失败，已跳过");
+                continue;
+            }
+        };
+
+        let modified = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+
+        items.push(ExportedCbz {
+            file_name: path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default()
+                .to_string(),
+            file_path: path,
+            file_size: meta.len(),
+            modified_at: modified,
+        });
+    }
+
+    // 最新的排前面，方便前端一眼看到刚导出的
+    items.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
+    Ok(items)
+}
+
+/// `GET /api/export/list` 的单条记录。
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportedCbz {
+    /// 文件名（含 `.cbz` 后缀）。
+    pub file_name: String,
+    /// 绝对路径。
+    pub file_path: std::path::PathBuf,
+    /// 字节大小。
+    pub file_size: u64,
+    /// 修改时间（Unix 秒）。
+    pub modified_at: i64,
 }
 
 // ════════════════════════════════════════════════════════════════

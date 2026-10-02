@@ -78,6 +78,11 @@ pub fn router(app: AppContext, auth: AuthConfig) -> Router {
             get(get_task).delete(delete_task),
         )
         .route("/tasks/:chapter_id/retry", post(retry_task))
+        // ── CBZ 导出（单行本）────────────────────────────
+        // 整本合成一个 CBZ，要求全部章节已下载。合成本身是重 CPU/IO 活，
+        // handler 内部走 `spawn_blocking`，不占 axum 的 async worker。
+        .route("/export/comic/:comic_id", post(export_comic_cbz))
+        .route("/export/list", get(list_exported_cbz))
         .route("/ws", get(ws::handler))
         .layer(axum::middleware::from_fn_with_state(
             auth.clone(),
@@ -297,6 +302,32 @@ async fn purge_tasks(
 struct PurgeRequest {
     #[serde(default)]
     retention_days: Option<i64>,
+}
+
+// ════════════════════════════════════════════════════════════════
+// CBZ 导出（单行本）
+// ════════════════════════════════════════════════════════════════
+
+/// 把整本漫画合成一个单行本 CBZ。
+///
+/// 失败语义（都走 `ApiError`，前端读 `errTitle` / 错误文本区分）：
+/// - 章节未下全 → 「还有 N 章未下载」（核心业务约束，非系统故障）
+/// - 漫画 ID 不存在 / 上游拉取失败
+/// - 磁盘写入失败
+async fn export_comic_cbz(
+    State(state): State<AppState>,
+    Path(comic_id): Path<String>,
+) -> Result<Json<crate::export::ExportResult>, ApiError> {
+    let result = commands::export_comic_cbz(&state.app, comic_id).await?;
+    Ok(Json(result))
+}
+
+/// 列出导出目录下已有的 CBZ 单行本。
+async fn list_exported_cbz(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<commands::ExportedCbz>>, ApiError> {
+    let items = handle!("列出导出文件失败", commands::list_exported_cbz(&state.app))?;
+    Ok(Json(items))
 }
 
 async fn delete_task(
