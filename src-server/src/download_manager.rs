@@ -310,29 +310,73 @@ impl DownloadManager {
     }
 
     pub fn pause_download_task(&self, chapter_id: &str) -> anyhow::Result<()> {
-        let tasks = self.download_tasks.read();
-        let Some(task) = tasks.get(chapter_id) else {
-            return Err(anyhow!("未找到章节ID为`{chapter_id}`的下载任务"));
-        };
-        task.set_state(DownloadTaskState::Paused);
-        Ok(())
+        self.set_task_state(chapter_id, DownloadTaskState::Paused)
     }
 
     pub fn resume_download_task(&self, chapter_id: &str) -> anyhow::Result<()> {
-        let tasks = self.download_tasks.read();
-        let Some(task) = tasks.get(chapter_id) else {
-            return Err(anyhow!("未找到章节ID为`{chapter_id}`的下载任务"));
-        };
-        task.set_state(DownloadTaskState::Pending);
-        Ok(())
+        self.set_task_state(chapter_id, DownloadTaskState::Pending)
     }
 
     pub fn cancel_download_task(&self, chapter_id: &str) -> anyhow::Result<()> {
-        let tasks = self.download_tasks.read();
-        let Some(task) = tasks.get(chapter_id) else {
+        self.set_task_state(chapter_id, DownloadTaskState::Cancelled)
+    }
+
+    /// 对单个章节任务做状态迁移（暂停 / 恢复 / 取消）。
+    ///
+    /// **DB 是真相源，内存 map 只是「本进程正在跑的任务」的索引。**
+    ///
+    /// 这两者并不等价：`task_snapshot` 会把 DB 里所有未完结任务都列给前端，
+    /// 其中 `failed` 且恢复时被跳过的任务（如漫画已下架）**永远不会进入内存 map**。
+    /// 早先这里直接 `tasks.get()` 后报错，导致用户对着列表里看得见的任务点「暂停」，
+    /// 后端却回「未找到下载任务」，界面毫无反馈。
+    ///
+    /// 所以现在的顺序是：
+    /// 1. 先查 DB——任务行不存在才报错（与 `retry_task` 的「内存里没有也照做」
+    ///    保持一致，DB 才是判定任务存不存在的依据）；
+    /// 2. 把状态落进 DB——这样列表页刷新后看到的就是新状态，即使任务从未
+    ///    进过内存；
+    /// 3. 若内存里恰好有，再驱动一次运行中的 `DownloadTask`，让它立刻感知迁移
+    ///    （暂停需要唤醒/中断在跑的任务，光改 DB 是没用的）。
+    fn set_task_state(&self, chapter_id: &str, state: DownloadTaskState) -> anyhow::Result<()> {
+        // 先查 DB：既拿到当前 `retry_count`（下面要原样写回），
+        // 也用来判断任务到底存不存在。
+        //
+        // 为什么不能拿 `set_state` 的返回值当存在性依据：它返回的是
+        // 「是否发生了**真实状态迁移**」，同状态重复写入同样返回 `false`
+        // （见 `set_state_reports_real_transitions_only`）。
+        // 于是「重复点暂停」与「任务不存在」返回值完全相同，
+        // 若拿它当判断条件，幂等重放会被误报成「未找到」。
+        let existing = TaskRepo::get(self.app.store(), chapter_id)?;
+        let Some(existing) = existing else {
             return Err(anyhow!("未找到章节ID为`{chapter_id}`的下载任务"));
         };
-        task.set_state(DownloadTaskState::Cancelled);
+
+        TaskRepo::set_state(
+            self.app.store(),
+            chapter_id,
+            state.to_db(),
+            None,
+            // 状态迁移不改变重试计数：读回当前值原样写回，
+            // 避免把 `retry_count` 冲成 0 导致退避策略失效。
+            existing.retry_count,
+        )
+        .context("持久化任务状态失败")?;
+
+        let task = self.download_tasks.read().get(chapter_id).cloned();
+
+        // 内存里没有：DB 已改完，前端下次拉快照就是新状态，到此为止。
+        let Some(task) = task else {
+            tracing::debug!(
+                chapter_id,
+                state = ?state,
+                "任务不在内存中，仅更新持久化状态"
+            );
+            return Ok(());
+        };
+
+        // 内存里有：驱动运行中的任务。`set_state` 内部会再落一次库（幂等）
+        // 并广播事件，让前端立刻收到更新而不是等下一次快照。
+        task.set_state(state);
         Ok(())
     }
 

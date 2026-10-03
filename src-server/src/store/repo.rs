@@ -1245,4 +1245,80 @@ mod tests {
         TaskRepo::upsert_new(&store, &make_task("ch-1", DbTaskState::Pending, 1)).unwrap();
         assert!(TaskRepo::get(&store, "ch-1").unwrap().is_some());
     }
+
+    // ── 状态迁移的存在性判定 ──────────────────────────────────────
+    //
+    // 下面两条锁定一个曾经真实存在的缺口：`pause` / `resume` / `cancel`
+    // 只看内存 map，而 `task_snapshot` 却把 DB 里所有未完结任务都列给前端。
+    // 于是「列表里看得见、但不在内存里」的任务（典型是 `failed` 且恢复时
+    // 被跳过的），一点操作就报「未找到」。
+    //
+    // 修复后的判定依据是 **`TaskRepo::get` 是否为 `Some`**，所以这里
+    // 直接钉住这个依据。
+
+    /// 恢复流程会跳过「漫画已下架」等无法重建的任务，它们**只留在 DB**。
+    /// 这类任务必须能被状态迁移命中——`get` 返回 `Some` 是唯一判据。
+    #[test]
+    fn db_only_task_is_reachable_for_state_transition() {
+        let db = TempDb::new();
+        let store = db.open();
+
+        // 模拟「恢复时被跳过」的失败任务：写进 DB，但从不进入内存 map。
+        // `retry_count` 刻意设为非 0 —— 若状态迁移把它冲成 0，
+        // 退避策略会失效（重试次数被「洗白」）。
+        //
+        // 注意 `make_task` 的第三个参数是 `total_img_count`，不是重试次数，
+        // 所以这里必须显式改字段。
+        let mut orphan = make_task("ch-orphan", DbTaskState::Failed, 3);
+        orphan.retry_count = 3;
+        TaskRepo::upsert_new(&store, &orphan).unwrap();
+
+        let existing = TaskRepo::get(&store, "ch-orphan").unwrap();
+        assert!(
+            existing.is_some(),
+            "仅在 DB 的任务必须被 get 查到，否则 pause/resume/cancel 会误报「未找到」"
+        );
+
+        // 暂停它——这一步在修复前会失败。
+        let task = existing.unwrap();
+        TaskRepo::set_state(&store, "ch-orphan", DbTaskState::Paused, None, task.retry_count)
+            .unwrap();
+
+        let after = TaskRepo::get(&store, "ch-orphan").unwrap().unwrap();
+        assert_eq!(after.state, DbTaskState::Paused);
+        assert_eq!(
+            after.retry_count, 3,
+            "状态迁移不得把 retry_count 冲成 0，否则退避策略失效"
+        );
+    }
+
+    /// `set_state` 的返回值**不能**用作存在性判据。
+    ///
+    /// 这条测试是上面那个修复的护栏：它把「同状态重复写入」与
+    /// 「任务不存在」两种情况并排钉死，证明二者返回值相同（都是 `false`），
+    /// 因此调用方必须自己用 `get` 判断存在性。
+    #[test]
+    fn set_state_return_value_cannot_distinguish_missing_from_noop() {
+        let db = TempDb::new();
+        let store = db.open();
+
+        TaskRepo::upsert_new(&store, &make_task("ch-1", DbTaskState::Paused, 1)).unwrap();
+
+        // 情况 A：任务存在，但状态本来就是 Paused —— 无变化。
+        let noop = TaskRepo::set_state(&store, "ch-1", DbTaskState::Paused, None, 0).unwrap();
+        // 情况 B：任务根本不存在。
+        let missing =
+            TaskRepo::set_state(&store, "ch-missing", DbTaskState::Paused, None, 0).unwrap();
+
+        assert!(!noop, "同状态重复写入不算迁移");
+        assert!(!missing, "不存在的任务返回 false 而不是报错");
+        assert_eq!(
+            noop, missing,
+            "两者返回值相同，说明调用方无法据此区分；存在性必须靠 TaskRepo::get"
+        );
+
+        // 而 `get` 能干净地区分这两种情况。
+        assert!(TaskRepo::get(&store, "ch-1").unwrap().is_some());
+        assert!(TaskRepo::get(&store, "ch-missing").unwrap().is_none());
+    }
 }

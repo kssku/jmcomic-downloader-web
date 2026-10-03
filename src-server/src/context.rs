@@ -202,7 +202,10 @@ impl AppContext {
     ///
     /// 改成在同一个 manager 上原地调整 permit：信号量对象不变，
     /// 在跑的任务无感，并发度立刻生效。
-    pub fn reload_download_manager(&self) -> anyhow::Result<()> {
+    ///
+    /// 方法名刻意不用 `reload_*`：一旦叫「重载」，后人很容易顺手改回
+    /// 「重建一个新 manager」，那正是上面这个 bug 的复现路径。
+    pub fn apply_concurrency(&self) -> anyhow::Result<()> {
         let (chapter_concurrency, img_concurrency) = {
             let config = self.config.read();
             (config.chapter_concurrency, config.img_concurrency)

@@ -396,7 +396,10 @@ impl JmClient {
             // jm 缓存失效时返回空，带时间戳重试一次
             let ts = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
             let query = json!({"ts": ts});
-            let http_resp = self.img_client.read().get(url).query(&query).send().await?;
+            // 读锁必须在 `.await` 前释放：否则整个图片下载期间都占着读锁，
+            // `reload_client` 的写锁会一直等（改代理要等所有在跑的图片下完）。
+            let request = self.img_client.read().get(url).query(&query);
+            let http_resp = request.send().await?;
             let status = http_resp.status();
             if status != StatusCode::OK {
                 let text = http_resp.text().await?;

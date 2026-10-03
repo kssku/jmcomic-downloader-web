@@ -54,7 +54,7 @@ async fn handle_socket(socket: WebSocket, app: AppContext) {
         payload: app.get_download_manager().task_snapshot(),
     };
     if let Ok(text) = serde_json::to_string(&snapshot) {
-        if sender.send(Message::Text(text.into())).await.is_err() {
+        if sender.send(Message::Text(text)).await.is_err() {
             return;
         }
     }
@@ -75,7 +75,7 @@ async fn handle_socket(socket: WebSocket, app: AppContext) {
                         let Ok(text) = serde_json::to_string(&msg) else {
                             continue;
                         };
-                        if sender.send(Message::Text(text.into())).await.is_err() {
+                        if sender.send(Message::Text(text)).await.is_err() {
                             break;
                         }
                     }
@@ -104,7 +104,7 @@ async fn handle_socket(socket: WebSocket, app: AppContext) {
 
             // 保活 Ping
             _ = heartbeat.tick() => {
-                if sender.send(Message::Ping(Vec::new().into())).await.is_err() {
+                if sender.send(Message::Ping(Vec::new())).await.is_err() {
                     break;
                 }
             }

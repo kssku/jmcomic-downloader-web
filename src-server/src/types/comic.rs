@@ -70,7 +70,7 @@ impl Comic {
                 let order = (index + 1) as i64;
                 let mut chapter_title = format!("第{order}话");
                 if !s.name.is_empty() {
-                    chapter_title.push_str(&format!(" {}", &s.name));
+                    chapter_title.push_str(&format!(" {}", s.name));
                 }
                 ChapterInfo {
                     chapter_id: s.id.clone(),

@@ -29,15 +29,18 @@ pub fn get_config(app: &AppContext) -> Config {
 /// 保存配置。
 ///
 /// 代理或 `api_base_url` 变化时重建 HTTP 客户端；
+/// 并发度变化时原地调整运行中 manager 的信号量；
 /// 文件日志开关变化时重载 / 关闭文件日志。
 pub fn save_config(app: &AppContext, config: Config) -> CommandResult<()> {
-    let (proxy_changed, api_base_url_changed, file_logger_changed) = {
+    let (proxy_changed, api_base_url_changed, concurrency_changed, file_logger_changed) = {
         let current = app.config_read();
         (
             current.proxy_mode != config.proxy_mode
                 || current.proxy_host != config.proxy_host
                 || current.proxy_port != config.proxy_port,
             current.api_base_url != config.api_base_url,
+            current.chapter_concurrency != config.chapter_concurrency
+                || current.img_concurrency != config.img_concurrency,
             current.enable_file_logger != config.enable_file_logger,
         )
     };
@@ -54,6 +57,18 @@ pub fn save_config(app: &AppContext, config: Config) -> CommandResult<()> {
         if api_base_url_changed {
             tracing::info!("API Base URL 已更新为: {}", jm_client.base_url());
         }
+    }
+
+    // 并发度必须原地生效：不重建 manager，否则在跑任务持有的旧 permit
+    // 不会释放，新旧信号量叠加会让实际并发翻倍（详见 `apply_concurrency`）。
+    if concurrency_changed {
+        app.apply_concurrency()
+            .map_err(|err| CommandError::from("应用新的下载并发度失败", err))?;
+        tracing::info!(
+            chapter_concurrency = config.chapter_concurrency,
+            img_concurrency = config.img_concurrency,
+            "下载并发度已更新"
+        );
     }
 
     if file_logger_changed {
@@ -869,7 +884,7 @@ pub fn list_exported_cbz(app: &AppContext) -> CommandResult<Vec<ExportedCbz>> {
     }
 
     // 最新的排前面，方便前端一眼看到刚导出的
-    items.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
+    items.sort_by_key(|a| std::cmp::Reverse(a.modified_at));
     Ok(items)
 }
 
