@@ -714,6 +714,9 @@ const state = {
   wsRetry: 0,
   stats: null,
   filterTimer: null,
+  // 请求序号：`loadTasks` 可能被筛选、翻页、WS 事件并发触发，
+  // 用单调递增的序号丢弃过期响应，避免先发后到的旧数据覆盖新数据。
+  loadSeq: 0,
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -868,14 +871,40 @@ function buildQuery() {
 }
 
 async function loadTasks() {
+  const seq = ++state.loadSeq;
   try {
     const r = await api('GET', `/api/tasks?${buildQuery()}`);
-    state.tasks = r.tasks || r.items || [];
+    // 期间又有新的请求发出（翻页 / 改筛选 / WS 事件触发），本次结果已过期。
+    if (seq !== state.loadSeq) return;
+    state.tasks = r.tasks || [];
     state.totalTasks = r.total ?? state.tasks.length;
     renderTasks();
   } catch (e) {
+    if (seq !== state.loadSeq) return;
     log(`加载任务失败：${e.message}`, 'err');
+    // 失败时不能停在旧内容上——那样用户会以为「就是这些任务」。
+    // 清空并显式报错，与「真的没有匹配任务」区分开（见 loadExports 的做法）。
+    state.tasks = [];
+    state.totalTasks = 0;
+    renderTasksError(e.message);
   }
+}
+
+/* 任务列表渲染失败态。与 renderTasks 的空态区分：
+   空态是「查到了，但没有」，这里是「没查到，因为出错了」。 */
+function renderTasksError(message) {
+  $('task-rows').innerHTML = `
+    <tr><td colspan="5">
+      <div class="empty">
+        <div class="empty-icon" aria-hidden="true">⚠️</div>
+        <div>任务列表加载失败</div>
+        <div class="empty-text">${esc(message)}</div>
+      </div>
+    </td></tr>`;
+  $('task-total').textContent = '';
+  $('page-info').textContent = '';
+  $('btn-prev').disabled = true;
+  $('btn-next').disabled = true;
 }
 
 function renderTasks() {
@@ -1204,8 +1233,16 @@ function connectWs() {
     const { topic, payload } = msg;
 
     if (topic === 'task-snapshot-event' && Array.isArray(payload)) {
-      state.tasks = payload;
-      renderTasks();
+      // 快照是「所有未完结任务」的全量列表，且排序是「内存任务优先 + DB created_at ASC」；
+      // 而任务列表走的是分页 API（updated_at DESC + state/comicId 筛选）。
+      // 两者语义不同，直接 state.tasks = payload 会把列表撑成全量、冲掉筛选和页码。
+      //
+      // 所以不拿快照当列表数据源，只用它当「有变化」的信号，重新拉当前页——
+      // 这样分页 / 排序 / 筛选的唯一真相源始终是 API。
+      //
+      // 注意别丢掉它的作用：连接刚建立时若只依赖轮询，第 2 页会看到过期数据；
+      // 这里主动拉一次，保证连上就能拿到当前页的最新状态。
+      loadTasks();
       return;
     }
     if (topic === 'download-task-event') {
