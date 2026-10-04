@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "verify:lockfile": "pnpm install --frozen-lockfile --lockfile-only"
+    "verify:lockfile": "pnpm install --frozen-lockfile --lockfile-only",
+    "test:console": "bash src-server/tests/frontend/run-all.sh",
+    "test:console:mutation": "bash src-server/tests/frontend/mutation-check.sh"
   },
   "dependencies": {
     "@phosphor-icons/vue": "^2.2.1",
