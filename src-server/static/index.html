@@ -385,6 +385,9 @@ tbody tr:last-child td { border-bottom: none; }
   white-space: nowrap;
 }
 .cell-num { font-variant-numeric: tabular-nums; color: var(--fg-1); }
+.cell-check { width: 34px; padding-right: 0; text-align: center; }
+.cell-check input { margin: 0; cursor: pointer; }
+tr:has(.row-check:checked) { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .cell-actions { display: flex; gap: 5px; flex-wrap: nowrap; }
 
 .empty { padding: 52px 20px; text-align: center; color: var(--fg-2); }
@@ -648,6 +651,9 @@ tbody tr:last-child td { border-bottom: none; }
           <table>
             <thead>
               <tr>
+                <th scope="col" class="cell-check">
+                  <input type="checkbox" id="check-all" aria-label="全选当前页">
+                </th>
                 <th scope="col">漫画 / 章节</th>
                 <th scope="col">状态</th>
                 <th scope="col">进度</th>
@@ -662,6 +668,8 @@ tbody tr:last-child td { border-bottom: none; }
         <div class="row" style="margin-top:14px">
           <span class="muted" id="task-total"></span>
           <div class="spacer"></div>
+          <button class="ghost sm danger" id="btn-bulk-delete" disabled
+                  onclick="deleteSelected()">删除选中<span id="bulk-count"></span></button>
           <button class="ghost sm" id="btn-prev" onclick="pagePrev()">上一页</button>
           <span class="muted" id="page-info">1</span>
           <button class="ghost sm" id="btn-next" onclick="pageNext()">下一页</button>
@@ -696,17 +704,31 @@ const STATE_LABEL = {
   cancelled: '已取消',
 };
 
+/* 配置字段的中文标签。键必须与后端 `Config`（src-server/src/config.rs）
+   序列化后的 camelCase 字段名逐一对齐 —— 漏一个，界面上就会露出英文键名。
+   test-config-labels.cjs 会解析 config.rs 做契约校验，防止后端加字段后脱节。 */
 const CONFIG_LABELS = {
   baseDir: '保存目录',
+  exportDir: '导出目录',
   dirFmt: '目录格式',
+  downloadFormat: '下载格式',
+  enableFileLogger: '文件日志',
+  shouldDownloadCover: '下载封面',
+  autoExportCbz: '自动导出 CBZ',
+  catalogAutoFill: '候选池自动补全',
+  catalogFillBatch: '候选池每轮上限',
+  apiBaseUrl: 'API 地址',
+  proxyMode: '代理模式',
+  proxyHost: '代理主机',
+  proxyPort: '代理端口',
   chapterConcurrency: '章节并发',
+  chapterDownloadIntervalSec: '章节间隔（秒）',
   imgConcurrency: '图片并发',
   imgDownloadIntervalSec: '图片间隔（秒）',
-  imgRetryTimes: '图片重试次数',
-  imgRetryIntervalSec: '重试间隔（秒）',
-  chapterDownloadIntervalSec: '章节间隔（秒）',
-  useCbz: '导出 CBZ',
 };
+
+/* 不渲染到配置面板的键：敏感项（CONFIG_SKIP）或只读项。 */
+const CONFIG_SKIP = new Set(['token', 'username', 'password']);
 
 const state = {
   filterState: '',
@@ -717,11 +739,18 @@ const state = {
   config: null,
   ws: null,
   wsRetry: 0,
+  // WS 是否处于已连接状态。连接期间事件会主动推送，轮询兜底只在
+  // 断开时才有意义 —— 否则 WS 连着还每 15 秒打一次 /api/tasks/stats。
+  wsLive: false,
   stats: null,
   filterTimer: null,
   // 请求序号：`loadTasks` 可能被筛选、翻页、WS 事件并发触发，
   // 用单调递增的序号丢弃过期响应，避免先发后到的旧数据覆盖新数据。
   loadSeq: 0,
+  // 已勾选待批量删除的 chapterId。用 Set 而非数组，避免重复添加。
+  // 翻页/筛选后列表会变，但勾选状态保留——这是刻意的，
+  // 用户可以先在第一页勾几个、翻页再勾几个，最后一次性删。
+  selectedIds: new Set(),
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -895,6 +924,9 @@ async function loadTasks() {
     if (seq !== state.loadSeq) return;
     state.tasks = r.tasks || [];
     state.totalTasks = r.total ?? state.tasks.length;
+    // 别处删掉的任务要清出勾选集合，否则计数虚高、批量删除会发向不存在的 id。
+    // 必须在 renderTasks 之前跑：syncSelection 依赖已清理过的集合来算计数。
+    pruneSelection();
     renderTasks();
   } catch (e) {
     if (seq !== state.loadSeq) return;
@@ -911,7 +943,7 @@ async function loadTasks() {
    空态是「查到了，但没有」，这里是「没查到，因为出错了」。 */
 function renderTasksError(message) {
   $('task-rows').innerHTML = `
-    <tr><td colspan="5">
+    <tr><td colspan="6">
       <div class="empty">
         <div class="empty-icon" aria-hidden="true">⚠️</div>
         <div>任务列表加载失败</div>
@@ -932,7 +964,7 @@ function renderTasks() {
   const rows = $('task-rows');
   if (state.tasks.length === 0) {
     rows.innerHTML = `
-      <tr><td colspan="5">
+      <tr><td colspan="6">
         <div class="empty">
           <div class="empty-icon" aria-hidden="true">📭</div>
           <div>没有匹配的任务</div>
@@ -957,8 +989,13 @@ function renderTasks() {
       if (st === 'downloading' || st === 'pending' || st === 'paused') actions.push(btn('cancel', '取消'));
       actions.push(btn('delete', '删除', 'icon danger'));
 
+      const checked = state.selectedIds.has(t.chapterId) ? ' checked' : '';
       return `
         <tr>
+          <td class="cell-check">
+            <input type="checkbox" class="row-check" data-cid="${esc(t.chapterId)}"
+                   aria-label="选择此任务"${checked}>
+          </td>
           <td>
             <div class="cell-title" title="${esc(t.comicTitle)}">${esc(t.comicTitle || '—')}</div>
             <div class="cell-sub" title="${esc(t.chapterTitle)}">${esc(t.chapterTitle || t.chapterId || '')}</div>
@@ -978,12 +1015,88 @@ function renderTasks() {
     }).join('');
   }
 
-  $('task-total').textContent = state.totalTasks ? `共 ${state.totalTasks} 条` : '';
+  /* `state.totalTasks` 是**当前筛选下**的总数（来自分页 API 的 total），
+     而标签页上的 `c-*` 计数是**全局**统计（来自 /api/tasks/stats）。
+     两者不同源，同一屏并列会出现「失败 3」配「共 12 条」的歧义。
+     有筛选时把口径写明；无筛选时二者等价，保持原样。 */
+  if (state.totalTasks) {
+    const filtered = state.filterState || state.filterComic;
+    $('task-total').textContent = filtered
+      ? `当前筛选 ${state.totalTasks} 条`
+      : `共 ${state.totalTasks} 条`;
+  } else {
+    $('task-total').textContent = '';
+  }
   const page = Math.floor(state.pageOffset / PAGE_SIZE) + 1;
   const pages = Math.max(1, Math.ceil(state.totalTasks / PAGE_SIZE));
   $('page-info').textContent = `第 ${page} / ${pages} 页`;
   $('btn-prev').disabled = state.pageOffset === 0;
   $('btn-next').disabled = state.pageOffset + PAGE_SIZE >= state.totalTasks;
+  syncSelection();
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   批量选择
+   ═══════════════════════════════════════════════════════════════ */
+
+/* 把选中态同步到 DOM：行勾选、表头全选、批量按钮。
+   三个入口（翻页、筛选、单条勾选）都调它，避免各自算各自的分叉。 */
+function syncSelection() {
+  const boxes = [...document.querySelectorAll('.row-check')];
+  let n = 0;
+  for (const b of boxes) {
+    const on = state.selectedIds.has(b.dataset.cid);
+    b.checked = on;
+    if (on) n++;
+  }
+  const all = $('check-all');
+  if (all) {
+    all.checked = boxes.length > 0 && n === boxes.length;
+    all.indeterminate = n > 0 && n < boxes.length;
+    all.disabled = boxes.length === 0;
+  }
+  const btn = $('btn-bulk-delete');
+  if (btn) btn.disabled = n === 0;
+  const cnt = $('bulk-count');
+  if (cnt) cnt.textContent = n ? `（${n}）` : '';
+}
+
+/* 勾选态跨页保留：chapterId 是全局唯一的，翻页后不该丢。
+   但已经被删掉的任务要清出集合，否则计数会虚高。 */
+function pruneSelection() {
+  const live = new Set(state.tasks.map((t) => t.chapterId));
+  for (const id of [...state.selectedIds]) {
+    if (!live.has(id)) state.selectedIds.delete(id);
+  }
+}
+
+async function deleteSelected() {
+  const ids = [...state.selectedIds];
+  if (!ids.length) return;
+  if (!confirm(`确认删除选中的 ${ids.length} 条任务？此操作不可撤销。`)) return;
+
+  const btn = $('btn-bulk-delete');
+  if (btn) btn.disabled = true;
+
+  // 逐条发：后端只有单条 DELETE，没有批量端点。
+  // 用 allSettled 而非 all —— 一条失败不该让其余成功的结果被当成整体失败，
+  // 否则用户看到「删除失败」却不知道其实删掉了 9 条。
+  const results = await Promise.allSettled(
+    ids.map((id) => api('DELETE', `/api/tasks/${encodeURIComponent(id)}`)),
+  );
+  const ok = results.filter((r) => r.status === 'fulfilled').length;
+  const fail = results.length - ok;
+
+  state.selectedIds.clear();
+  if (fail === 0) {
+    log(`已删除 ${ok} 条任务`, 'ok');
+    toast(`已删除 ${ok} 条`, 'ok');
+  } else {
+    const firstErr = results.find((r) => r.status === 'rejected')?.reason;
+    log(`删除完成：成功 ${ok} 条，失败 ${fail} 条（${firstErr?.message ?? '未知错误'}）`, 'err');
+    toast(`成功 ${ok} 条，失败 ${fail} 条`, 'err');
+  }
+  await refreshAll();
 }
 
 function setFilter(btn, st) {
@@ -1208,8 +1321,6 @@ async function loadExports() {
 /* ═══════════════════════════════════════════════════════════════
    配置
    ═══════════════════════════════════════════════════════════════ */
-const CONFIG_SKIP = new Set(['token', 'username', 'password']);
-
 async function loadConfig() {
   try {
     const cfg = await api('GET', '/api/config');
@@ -1278,6 +1389,7 @@ function connectWs() {
 
   ws.onopen = () => {
     state.wsRetry = 0;
+    state.wsLive = true;
     setConn('live', '实时已连接');
   };
 
@@ -1285,6 +1397,7 @@ function connectWs() {
   // 就会派出两条重连链，且 wsRetry 翻倍递增，退避时间提前爆炸。
   // 约定：只由 onclose 负责重连，onerror 仅更新状态文案。
   ws.onclose = () => {
+    state.wsLive = false;
     setConn('down', '已断开');
     scheduleReconnect();
   };
@@ -1383,6 +1496,25 @@ function bindTaskActions() {
       case 'delete': deleteTask(cid);           break;
     }
   });
+
+  /* 表头全选：只作用于当前页可见的行。
+     跨页选择由 state.selectedIds 保留，这里不越界去动别的页。 */
+  $('check-all').addEventListener('change', (e) => {
+    for (const b of document.querySelectorAll('.row-check')) {
+      if (e.target.checked) state.selectedIds.add(b.dataset.cid);
+      else state.selectedIds.delete(b.dataset.cid);
+    }
+    syncSelection();
+  });
+
+  /* 行勾选用委托：行是 renderTasks 动态生成的，逐个绑定会随每次重绘失效。 */
+  $('task-rows').addEventListener('change', (e) => {
+    const b = e.target.closest('.row-check');
+    if (!b) return;
+    if (b.checked) state.selectedIds.add(b.dataset.cid);
+    else state.selectedIds.delete(b.dataset.cid);
+    syncSelection();
+  });
 }
 
 async function refreshAll() {
@@ -1394,7 +1526,12 @@ bindTaskActions();
 loadConfig();
 refreshAll();
 connectWs();
-setInterval(loadStats, 15000);
+/* 兜底轮询：只在 WS 未连通时跑。
+   WS 连通时统计由事件驱动刷新，再每 15 秒打一次 API 纯属重复请求。
+   WS 断开时它顶上，保证数字不会停在旧值。 */
+setInterval(() => {
+  if (!state.wsLive) loadStats();
+}, 15000);
 </script>
 </body>
 </html>
