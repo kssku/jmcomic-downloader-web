@@ -29,7 +29,10 @@ function makeEl(id) {
     removeChild(c){ const i = this._kids.indexOf(c); if (i >= 0) this._kids.splice(i,1); this.childElementCount = this._kids.length; this.firstChild = this._kids[0] || null; return c; },
     remove(){}, addEventListener(){},
     querySelectorAll(){ return []; }, querySelector(){ return null; },
+    _listeners: {},
+    _fire(type, ev){ (this._listeners[type] || []).forEach((fn) => fn(ev)); },
   };
+  el.addEventListener = function(type, fn){ (el._listeners[type] = el._listeners[type] || []).push(fn); };
   Object.defineProperty(el, 'innerHTML', {
     get(){ return el._innerHTML; },
     set(v){ el._innerHTML = String(v); written[id] = el._innerHTML; },
@@ -80,7 +83,8 @@ function setFetch(fn){ fetchImpl = fn; }
 // 载入被测代码。每次调用都重新 eval，得到互相隔离的 state。
 const code = extractScript(fs.readFileSync(HTML, 'utf8'));
 const EXPORTS = ['state','loadTasks','renderTasks','renderTasksError','applyTaskEvent',
-                 'buildQuery','esc','PAGE_SIZE','connectWs'];
+                 'buildQuery','esc','PAGE_SIZE','connectWs','bindTaskActions',
+                 'parseRetentionDays','purgeTasks'];
 
 const wrapped = code
   + '\n;globalThis.__t = {' + EXPORTS.join(', ') + '};';

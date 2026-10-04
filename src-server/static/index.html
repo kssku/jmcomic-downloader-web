@@ -608,7 +608,12 @@ tbody tr:last-child td { border-bottom: none; }
         <h2>任务统计</h2>
         <div class="stats" id="stats"></div>
         <div class="row" style="margin-top:14px">
-          <button class="ghost sm" onclick="purgeTasks()">清理终态任务</button>
+          <label for="purge-days" class="muted">清理</label>
+          <input id="purge-days" type="text" inputmode="numeric" value="30"
+                 style="width:64px" aria-describedby="purge-msg">
+          <span class="muted">天前的终态任务</span>
+          <button class="ghost sm" id="btn-purge" onclick="purgeTasks()">清理</button>
+          <span class="muted" id="purge-msg" aria-live="polite"></span>
         </div>
       </section>
 
@@ -755,6 +760,11 @@ async function api(method, path, body) {
 /* ═══════════════════════════════════════════════════════════════
    日志与 Toast
    ═══════════════════════════════════════════════════════════════ */
+/* 日志行数上限。用计数器跟踪，避免每追加一行都做一次
+   childElementCount（它是会遍历子节点的 DOM 查询，高频 WS 事件下是 O(n) 叠加）。 */
+const LOG_MAX = 400;
+let logCount = 0;
+
 function log(msg, kind = '') {
   const el = $('log');
   const line = document.createElement('div');
@@ -763,7 +773,14 @@ function log(msg, kind = '') {
   line.innerHTML = `<span class="log-ts">${ts()}</span><span class="log-msg">${esc(msg)}</span>`;
   el.appendChild(line);
   el.scrollTop = el.scrollHeight;
-  while (el.childElementCount > 400) el.removeChild(el.firstChild);
+
+  if (++logCount > LOG_MAX) {
+    // 一次裁剪掉超出部分，而不是每行只删一个。外部清空过 #log 时
+    // childElementCount 会小于计数，用最小长度兜底，避免 removeChild(null)。
+    const excess = logCount - LOG_MAX;
+    for (let i = 0; i < excess && el.firstChild; i++) el.removeChild(el.firstChild);
+    logCount = el.childElementCount;
+  }
 }
 
 function toast(msg, kind = 'info', ms = 3200) {
@@ -905,6 +922,10 @@ function renderTasksError(message) {
   $('page-info').textContent = '';
   $('btn-prev').disabled = true;
   $('btn-next').disabled = true;
+  // 失败态下页码已不可信：若停在越界 offset，切回筛选时会带着它请求，
+  // 后端返回空列表，用户会误以为「筛选后没有任务」。归零让下次从第一页开始。
+  state.pageOffset = 0;
+  state.totalTasks = 0;
 }
 
 function renderTasks() {
@@ -922,15 +943,19 @@ function renderTasks() {
       const st = t.state || 'pending';
       const label = STATE_LABEL[st] || st;
       const pct = typeof t.progress === 'number' ? t.progress : 0;
+      // 动作按钮不内联 onclick：chapterId 是任意 String（后端无格式约束），
+      // 而 esc() 只转 HTML 实体、不做 JS 字符串转义——
+      // `'` 会变成 `&#39;`，浏览器解析属性时又还原成 `'`，从而闭合字面量逃逸。
+      // 改为 data-* 传值 + 事件委托，值只经 dataset 读取，不进 JS 源码。
       const actions = [];
+      const btn = (act, text, cls = 'icon') =>
+        `<button class="${cls}" data-act="${act}" data-cid="${esc(t.chapterId)}">${text}</button>`;
 
-      if (st === 'downloading') actions.push(`<button class="icon" onclick="taskAction('${esc(t.chapterId)}','pause')">暂停</button>`);
-      if (st === 'paused') actions.push(`<button class="icon" onclick="taskAction('${esc(t.chapterId)}','resume')">继续</button>`);
-      if (st === 'failed' || st === 'cancelled') actions.push(`<button class="icon" onclick="retryTask('${esc(t.chapterId)}')">重试</button>`);
-      if (st === 'downloading' || st === 'pending' || st === 'paused') {
-        actions.push(`<button class="icon" onclick="taskAction('${esc(t.chapterId)}','cancel')">取消</button>`);
-      }
-      actions.push(`<button class="icon danger" onclick="deleteTask('${esc(t.chapterId)}')">删除</button>`);
+      if (st === 'downloading') actions.push(btn('pause', '暂停'));
+      if (st === 'paused') actions.push(btn('resume', '继续'));
+      if (st === 'failed' || st === 'cancelled') actions.push(btn('retry', '重试'));
+      if (st === 'downloading' || st === 'pending' || st === 'paused') actions.push(btn('cancel', '取消'));
+      actions.push(btn('delete', '删除', 'icon danger'));
 
       return `
         <tr>
@@ -1067,19 +1092,55 @@ async function loadStats() {
   }
 }
 
+/* 清理面板内的天数输入校验。
+   parseInt 的结果必须显式判定：`|| 30` 会把 0 和 NaN 一起吞成 30——
+   用户输入 0（本意是全部清理）或 abc，都会静默变成「清 30 天前」。
+   返回 null 表示输入非法，由调用方拒绝提交。 */
+function parseRetentionDays(raw) {
+  const s = String(raw).trim();
+  if (!/^\d+$/.test(s)) return null;
+  const n = Number(s);
+  if (!Number.isSafeInteger(n)) return null;
+  return n;
+}
+
+let purgeBusy = false;
+
 async function purgeTasks() {
-  const days = prompt('清理多少天前的终态任务？', '30');
-  if (days === null) return;
-  const retentionDays = parseInt(days, 10) || 30;
+  if (purgeBusy) return;
+  const input = $('purge-days');
+  if (!input) return;
+
+  const retentionDays = parseRetentionDays(input.value);
+  if (retentionDays === null) {
+    $('purge-msg').textContent = '请输入非负整数天数';
+    input.focus();
+    toast('请输入非负整数天数', 'warn');
+    return;
+  }
+
+  const scope = retentionDays === 0 ? '全部终态任务' : `${retentionDays} 天前的终态任务`;
+  if (!confirm(`确认清理${scope}？此操作不可撤销。`)) return;
+
+  purgeBusy = true;
+  const btn = $('btn-purge');
+  if (btn) btn.disabled = true;
+  $('purge-msg').textContent = '清理中…';
   try {
     const r = await api('POST', '/api/tasks/purge', { retentionDays });
-    const msg = `已清理 ${r.removed ?? 0} 条（保留 ${r.retentionDays ?? retentionDays} 天）`;
+    const kept = r.retentionDays ?? retentionDays;
+    const msg = `已清理 ${r.removed ?? 0} 条（保留 ${kept} 天）`;
+    $('purge-msg').textContent = `已清理 ${r.removed ?? 0} 条`;
     log(msg, 'ok');
     toast(msg, 'ok');
     await refreshAll();
   } catch (e) {
+    $('purge-msg').textContent = '清理失败';
     log(`清理失败：${e.message}`, 'err');
     toast(`清理失败：${e.message}`, 'err');
+  } finally {
+    purgeBusy = false;
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -1220,6 +1281,9 @@ function connectWs() {
     setConn('live', '实时已连接');
   };
 
+  // onerror 之后浏览器必然还会触发 onclose。若两处都调用 scheduleReconnect，
+  // 就会派出两条重连链，且 wsRetry 翻倍递增，退避时间提前爆炸。
+  // 约定：只由 onclose 负责重连，onerror 仅更新状态文案。
   ws.onclose = () => {
     setConn('down', '已断开');
     scheduleReconnect();
@@ -1287,6 +1351,14 @@ function applyTaskEvent(ev) {
       log(`任务${STATE_LABEL[d.state] || d.state}：${d.chapterId}（${d.downloadedImgCount}/${d.totalImgCount}）`,
           d.state === 'completed' ? 'ok' : 'err');
       loadStats();
+
+      // 进入终态后该任务是否还属于当前列表，取决于当前筛选：
+      //  - 无筛选 / 筛选状态与终态不符 → 列表成员变了，必须重拉
+      //  - 筛选态恰好就是 completed/failed → 成员没变，只需 renderTasks（上面已做）
+      // 不重拉的话，在「下载中」标签页里，完成的任务会一直挂在列表上显示为已完成。
+      const inList = state.tasks.some((x) => x.chapterId === d.chapterId);
+      const stillMatches = !state.filterState || state.filterState === d.state;
+      if (inList && !stillMatches) loadTasks();
     }
   }
 }
@@ -1294,11 +1366,31 @@ function applyTaskEvent(ev) {
 /* ═══════════════════════════════════════════════════════════════
    初始化
    ═══════════════════════════════════════════════════════════════ */
+
+/* 任务行动作按钮的委托监听。
+   由 renderTasks 输出 data-act / data-cid，这里统一分发——
+   值只经 dataset 读取，不参与 JS 源码拼接，因此 chapterId 含引号也无害。 */
+function bindTaskActions() {
+  $('task-rows').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-act]');
+    if (!b) return;
+    const cid = b.dataset.cid;
+    switch (b.dataset.act) {
+      case 'pause':  taskAction(cid, 'pause');  break;
+      case 'resume': taskAction(cid, 'resume'); break;
+      case 'cancel': taskAction(cid, 'cancel'); break;
+      case 'retry':  retryTask(cid);            break;
+      case 'delete': deleteTask(cid);           break;
+    }
+  });
+}
+
 async function refreshAll() {
   await Promise.all([loadTasks(), loadStats(), loadExports()]);
 }
 
 log('控制台已就绪', 'info');
+bindTaskActions();
 loadConfig();
 refreshAll();
 connectWs();

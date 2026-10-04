@@ -10,7 +10,7 @@ set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 rc=0
 
-for t in test-behavior.cjs test-ws.cjs; do
+for t in test-behavior.cjs test-ws.cjs test-injection.cjs; do
   echo "════════ $t ════════"
   node "$DIR/$t" || rc=1
   echo
