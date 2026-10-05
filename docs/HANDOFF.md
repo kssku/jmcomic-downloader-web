@@ -20,9 +20,9 @@
 | 本地 HEAD | `ad5f9aa` feat(console): 批量删除 + 配置标签补全 + 轮询去重 + 计数口径消歧 |
 | 与远端 | 同步，无领先无落后 |
 | 工作区 | **干净**（无未提交改动） |
-| 容器 | `jmcomic-server` Up (healthy)，`0.0.0.0:8081->8080` |
+| 容器 | `jmcomic-server` Up (healthy)，`0.0.0.0:8080->8080` |
 | 镜像 | `jmcomic-server:api-only`（108MB）|
-| 局域网 | http://192.168.31.154:8081 |
+| 局域网 | http://192.168.31.154:8080 |
 | 认证 | **关闭**（`JM_AUTH_DISABLED=true`，仅测试用）|
 
 **关键点**：原先「镜像比 git 新」的漂移**已消除**。那 40 行已在 `de3c825`（原 `135b482`）提交并推送，
@@ -247,7 +247,7 @@ docker build -t jmcomic-server:api-only -f Dockerfile .
 ```
 
 - 期望镜像名/tag 与 `docker-compose.yml` 一致：`jmcomic-server:api-only`
-- 端口：`8081 -> 8080`
+- 端口：`8080 -> 8080`（**容器实际监听在 8080**；容器是早年用 `docker run` 起的，没走 compose 的 `JM_HOST_PORT` 映射）
 - 镜像大小：**108MB**
 - **27 步全过，BUILD_EXIT=0**
 
@@ -286,7 +286,7 @@ docker build -t jmcomic-server:api-only -f Dockerfile .
 
 **改了 `index.html` 仍须重新 `docker build`**（因为静态资源是 COPY 进镜像的，不是挂载的），光重启容器没用。Dockerfile 用 `COPY src-server/static /app/static` + `find/chmod` 固定权限位。
 
-> 注意：Dockerfile 里 **web 阶段（`pnpm exec vite build`）是注释掉的**，这是**有意为之**——项目有两条前端路线，后端自带的单文件控制台（当前工作区 64452 字节，零外部依赖）已够用。**不要误以为「没有前端」。**
+> 注意：Dockerfile 里 **web 阶段（`pnpm exec vite build`）是注释掉的**，这是**有意为之**——当前走的是「**Vue 3 SPA 通过 `pnpm build` 产物落到 `src-server/static/`，再由 `ServeDir` 运行期托管**」这条路（与 `README.md` 的前端构建流程一致）。Dockerfile 内那段被注释的 web 阶段是**镜像内构建**的备选路线，不是当前使用的那条。**不要误以为「没有前端」。**
 
 ### `.env`（测试专用，未提交，已被 gitignore 忽略）
 
