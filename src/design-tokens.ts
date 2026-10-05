@@ -96,6 +96,10 @@ export const palette = {
     warning: '#e8743a',
     error: '#e83b52',
     neutral: '#3a3ac4',
+    // 取消态。原先与 `neutral` 同色，导致「排队中」和「已取消」在列表里
+    // 无法用颜色区分（两者都是蓝色）。改用低饱和冷灰紫（H=250 S=15% L=55%），
+    // 与 neutral 的 H=240 拉开色相距离，但饱和度低到不会与 error/info 抢注意力。
+    cancelled: '#8a86a6',
   },
 }
 
@@ -166,6 +170,7 @@ export const cssVars: Record<string, string> = {
   '--state-warning': palette.state.warning,
   '--state-error': palette.state.error,
   '--state-neutral': palette.state.neutral,
+  '--state-cancelled': palette.state.cancelled,
   // —— 色块 alpha 变量 ——
   // 调试面板「色块」分组直接改这几个值，消费端的 color-mix 百分比改成读变量，
   // 这样调参不需要改组件代码。

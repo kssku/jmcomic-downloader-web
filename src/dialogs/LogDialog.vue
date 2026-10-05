@@ -63,7 +63,13 @@ watch(showing, async () => {
       return
     }
     logsDirSize.value = result.data
-    await loadLogsFromServer()
+    // getLogs 走 callDirect（失败抛异常）。不兜住的话，这里一抛，
+    // 后面 watch 回调里剩余的逻辑都不会执行。
+    try {
+      await loadLogsFromServer()
+    } catch (e) {
+      console.error('读取日志失败', e)
+    }
   }
 })
 
@@ -126,6 +132,7 @@ function clearLogRecords() {
 
 // 从后端拉取最近的日志文件内容（Web 端无法直接访问日志目录）
 async function loadLogsFromServer() {
+  // getLogs 是 callDirect，失败会抛；由调用方负责兜住。
   const lines = await commands.getLogs(1000)
   logRecords.value = []
   nextLogRecordId = 1

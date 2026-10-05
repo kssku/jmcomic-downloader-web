@@ -78,13 +78,14 @@ function stateLabel(state: string): string {
 }
 
 // 状态色统一走 token。
-// Cancelled / Pending 走 --state-neutral；Pending 在下方单独给 neutral。
+// Pending 与 Cancelled 原先同走 --state-neutral，列表里两种状态颜色完全相同。
+// 现在 Cancelled 单列 --state-cancelled（冷灰紫），Pending 保留 neutral。
 function stateColor(state: DownloadTaskState): string {
   if (state === 'Downloading') return 'var(--state-info)'
   if (state === 'Paused') return 'var(--state-warning)'
   if (state === 'Failed') return 'var(--state-error)'
   if (state === 'Completed') return 'var(--state-success)'
-  if (state === 'Cancelled') return 'var(--state-neutral)'
+  if (state === 'Cancelled') return 'var(--state-cancelled)'
   return 'var(--state-neutral)'
 }
 

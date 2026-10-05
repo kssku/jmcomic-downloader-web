@@ -23,7 +23,15 @@ const downloadDirHint = computed<string>(() => store.serverInfo?.downloadDir ?? 
 
 onMounted(async () => {
   if (store.serverInfo === undefined) {
-    store.serverInfo = (await commands.getServerInfo()) ?? undefined
+    // getServerInfo 走 callDirect（失败抛异常，而不是返回 error 对象）。
+    // 不兜住的话，后端抖动会让整个弹窗的 onMounted 抛出去，
+    // 路径提示就永远停在「加载中...」。
+    try {
+      store.serverInfo = (await commands.getServerInfo()) ?? undefined
+    } catch (e) {
+      console.error('获取服务器信息失败', e)
+      store.serverInfo = undefined
+    }
   }
 })
 </script>

@@ -11,7 +11,14 @@ const version = ref('')
 
 onMounted(async () => {
   if (store.serverInfo === undefined) {
-    store.serverInfo = (await commands.getServerInfo()) ?? undefined
+    // 同 SettingsDialog：callDirect 抛异常，不兜住的话下面 version.value
+    // 那行根本执行不到，版本号永远空白。
+    try {
+      store.serverInfo = (await commands.getServerInfo()) ?? undefined
+    } catch (e) {
+      console.error('获取服务器信息失败', e)
+      store.serverInfo = undefined
+    }
   }
   version.value = store.serverInfo?.version ?? ''
 })

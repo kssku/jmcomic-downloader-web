@@ -252,7 +252,8 @@ function stateToColorClass(state: DownloadTaskState) {
   } else if (state === 'Completed') {
     return 'text-[var(--state-success)]'
   } else if (state === 'Cancelled') {
-    return 'text-[var(--state-neutral)]'
+    // 与 Pending 分色：两者原先都是 neutral，列表里无法区分。
+    return 'text-[var(--state-cancelled)]'
   }
 
   return ''
