@@ -291,7 +291,7 @@ docker build -t jmcomic-server:api-only -f Dockerfile .
 ### `.env`（测试专用，未提交，已被 gitignore 忽略）
 
 ```ini
-JM_HOST_PORT=8081
+JM_HOST_PORT=8080
 JM_AUTH_DISABLED=true          # ← 安全风险：局域网无认证
 JM_AUTH_USER=admin
 JM_AUTH_TOKEN=***              # 已脱敏
@@ -407,7 +407,7 @@ GitHub 上现在有 `cb3d0b5`（原 `69d28e0`，作者已重写），包含：
 | `src-server/src/jm_client.rs:399` | RwLock 读锁跨 await 的修复点 |
 | `Dockerfile:34-70` | web 阶段（注释掉，有意为之）|
 | `Dockerfile:116-118` | `static` 目录拷贝 |
-| `docker-compose.yml` | 期望镜像 `jmcomic-server:api-only`，端口 8081→8080 |
+| `docker-compose.yml` | 期望镜像 `jmcomic-server:api-only`，端口 8080→8080 |
 
 ---
 

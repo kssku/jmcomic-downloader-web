@@ -4,7 +4,7 @@
 #  用法：
 #    1. cp .env.example .env   # 然后改掉 JM_AUTH_TOKEN
 #    2. docker compose up -d --build
-#    3. 浏览器打开 http://<NAS IP>:8081
+#    3. 浏览器打开 http://<NAS IP>:8080
 #
 #  常用命令：
 #    docker compose logs -f          # 看实时日志
@@ -25,8 +25,8 @@ services:
 
     ports:
       # 左边是 NAS 上对外暴露的端口，被占用就改成别的（如 18081）
-      # 默认 8081，避免与 pica 版（8080）冲突
-      - "${JM_HOST_PORT:-8081}:8080"
+      # 默认 8080；若与 pica 版冲突，改这里
+      - "${JM_HOST_PORT:-8080}:8080"
 
     environment:
       # ── 认证 ──────────────────────────────────────────────────────
