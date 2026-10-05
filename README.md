@@ -17,14 +17,14 @@ Rust 后端（axum + SQLite）+ 前端 SPA，可部署在服务器/NAS 的 Docke
 - [x] 阶段 1a：jm 数据层移植（jm_client / responses / 类型适配）
 - [x] 阶段 1b/1c：数据模型 + 调度/命令层适配
 - [x] 前端 UI 改 jm
-- [ ] 部署验证
+- [x] 部署验证
 
 ---
 
 ## 技术栈
 
 - 后端：Rust、axum、SQLite、reqwest
-- 前端：TypeScript + Vite
+- 前端：TypeScript + Vue 3 + Vite + UnoCSS + naive-ui + Pinia
 - 部署：Docker / docker-compose
 
 ---
