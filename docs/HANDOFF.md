@@ -307,6 +307,43 @@ JM_NO_PROXY=localhost,127.0.0.1,::1,www.cdnhth.cc,*.jmapiproxy2.cc,*.jmapiproxy.
 
 已在 `.gitignore:19` 和 `.dockerignore:22-23` 里排除，**不会进仓库**。
 
+### 当前部署方式：手动 docker run（非 compose）
+
+本机当前容器 `jmcomic-server` 是**手动 `docker run`** 起的，不是 compose。
+
+**重建命令：**
+
+```bash
+cd /root/GitHub/jmcomic-downloader-web
+pnpm build
+rm -rf src-server/static/* && cp -r dist/. src-server/static/
+docker build -t jmcomic-server:api-only -f Dockerfile .
+docker stop jmcomic-server && docker rm jmcomic-server
+docker run -d --name jmcomic-server -p 8080:8080 \
+  -v 9f909e1a92f388ac6c00577c1aafe9030eca5c637d08e4fbf9784a0c17a4c46a:/data \
+  -e JM_DATA_DIR=/data -e JM_BIND=0.0.0.0 -e JM_PORT=8080 -e TZ=Asia/Shanghai \
+  --restart unless-stopped \
+  jmcomic-server:api-only
+```
+
+**注意：**
+
+- `docker rm` **不要加 `-v`**——`-v` 会删匿名卷，数据库和下载文件全丢
+- 匿名卷 hash 用 `docker inspect jmcomic-server --format '{{json .Mounts}}'` 查
+- **不要用 `docker compose up`** —— compose 挂 3 个具名卷，路径与当前匿名卷不同，数据会找不到
+
+**compose 是备用路径**：`docker-compose.yml` 存在但当前未使用。若要切换到 compose，需先把匿名卷数据迁移到 compose 的具名卷。
+
+**手动 run 与 compose 的配置差异**（当前容器 vs `docker-compose.yml`）：
+
+| 项 | 手动 run（当前） | compose（未使用） |
+|---|---|---|
+| 卷 | 匿名卷 `9f909e1a...` 一个，挂 `/data` | 具名卷三个：`/data`、`/comic-download`、`/databases` |
+| 认证 | **关闭**（未传 `JM_AUTH_DISABLED`，走代码默认 `true`） | 关闭（compose 里显式设为 `true`） |
+| 端口 | `8080 -> 8080` | `8080 -> 8080`（可经 `JM_HOST_PORT` 改） |
+
+两者**不会同时运行**，所以这个不一致本身不是 bug；但下次有人想用 compose 起时会发现数据是空的，需先完成卷迁移。
+
 ---
 
 ## 六、已知问题与缺口
