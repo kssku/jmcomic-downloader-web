@@ -136,6 +136,37 @@ export type ListTasksParams = {
   offset?: number;
 };
 
+/**
+ * 调参面板的 22 个视觉参数。全部是标量。
+ *
+ * ⚠️ 与后端 `config::ThemeConfig`、`src/design-tokens.ts`、
+ * `DebugPanel.vue` 的 `DEFAULT_*` 四处必须同步。
+ */
+export type ThemeConfig = {
+  panelAlpha: number;
+  wallpaper: number;
+  blur: number;
+  bgBase: number;
+  primaryAlpha: number;
+  borderHue: number;
+  borderSat: number;
+  borderVal: number;
+  borderAlpha: number;
+  borderWidth: number;
+  saturate: number;
+  pillHueSuccess: number;
+  pillHueInfo: number;
+  pillHueWarning: number;
+  pillHueError: number;
+  pillHueNeutral: number;
+  pillAlpha: number;
+  sidebarActiveHue: number;
+  sidebarActiveAlpha: number;
+  sidebarHoverAlpha: number;
+  rowAlpha: number;
+  detailAlpha: number;
+};
+
 export type Config = {
   token: string;
   downloadDir: string;
@@ -158,6 +189,8 @@ export type Config = {
    */
   autoExportCbz: boolean;
   apiBaseUrl: string;
+  /** 调参面板的视觉参数，跨设备共享（存后端 config.json）。 */
+  theme: ThemeConfig;
 };
 
 /** GET /api/server/info 的返回结构。 */
@@ -386,6 +419,14 @@ export const commands = {
 
 	async saveConfig(config: Config): Promise<Result<null, CommandError>> {
 		return await callResult<null>(() => post("/api/config", config));
+	},
+
+	/**
+	 * 只保存主题字段。请求体是裸 `ThemeConfig`，不要求完整 Config ——
+	 * 这样调参面板不必先读一份完整配置，避免覆盖别人刚改的下载参数。
+	 */
+	async saveTheme(theme: ThemeConfig): Promise<Result<null, CommandError>> {
+		return await callResult<null>(() => post("/api/config/theme", theme));
 	},
 
   async login(

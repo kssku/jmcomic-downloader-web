@@ -5,13 +5,15 @@
   - 不走 Vue 响应式。滑块的 oninput 直接 setProperty 到 :root，避免整个 app 重渲染。
   - 22 个滑块按语义分 4 组（玻璃 / 边框 / 背景 / 色块），组标题可折叠。
   - 面板本身用玻璃效果（--bg-panel + backdrop-filter），和其他 pane 保持一致。
-  - 值存 localStorage：参数 jm-devtools-values，色块 jm-devtools-colors，
-    分组展开状态 jm-devtools-groups。
+  - 值存后端 config.theme（跨设备一致）。拖滑块只改 :root 做即时预览，
+    点「保存」才 POST 到 /api/config/theme。
+  - 分组展开状态仍存 localStorage（jm-devtools-groups）—— 纯 UI 状态，与主题无关。
 
-  调好后点「导出 JSON」，把文本粘回对话即可固化。
+  调好后点「导出 JSON」，把文本粘回对话即可固化到代码。
 -->
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useMessage } from 'naive-ui'
 import { PhCaretDown, PhCaretRight } from '@phosphor-icons/vue'
 import {
   palette,
@@ -20,9 +22,16 @@ import {
   GLASS_BLUR,
   GLASS_SATURATE,
 } from '../design-tokens'
+import { commands } from '../bindings.ts'
+import type { ThemeConfig } from '../bindings.ts'
+import { readThemeDefaults } from '../debug-theme.ts'
+import { useStore } from '../store.ts'
 
 // 面板是主区「调参」pane 的内容（生产 build 也渲染），不再是右下角浮层。
-// 值分两个 key 存 localStorage：容器/玻璃参数、语义色块各一组。
+// 值存后端 config.theme；拖滑块是临时预览，保存才落盘。
+
+const store = useStore()
+const message = useMessage()
 
 // 默认值：与 design-tokens.ts 保持同源，避免这里再写一份字面量。
 // 玻璃 alpha 与淡蓝底明度没有对应的 token 常量（alpha 内嵌在 rgba 字符串里、
@@ -247,104 +256,51 @@ function setSaturate() {
 
 // —— 持久化 ——
 //
-// 值存成普通对象，读回来时逐字段校验类型，避免 localStorage 里
-// 手工改坏的字符串把 ref 变成 NaN 导致整页样式归零。
-const LS_VALUES = 'jm-devtools-values'
-// 「色块」分组单独一个 key。和 LS_VALUES 分开的理由：色块是「语义色」，
-// 和容器层级/玻璃参数不是一类东西，用户可能只想重置其中一组。
-const LS_COLORS = 'jm-devtools-colors'
+// 值存后端 config.theme（见 src-server/src/config.rs 的 ThemeConfig）。
+// 拖滑块只改 :root 做即时预览，点「保存」才 POST —— 所以这里没有 saveValues，
+// 只有「从 store 读一份」的 loadFromStore。
 
-function loadValues() {
-  try {
-    const raw = localStorage.getItem(LS_VALUES)
-    if (!raw) return
-    const v = JSON.parse(raw) as Record<string, unknown>
-    const num = (x: unknown, fallback: number) =>
-      typeof x === 'number' && Number.isFinite(x) ? x : fallback
-    panelAlpha.value = num(v.panelAlpha, DEFAULT_PANEL_ALPHA)
-    wallpaper.value = num(v.wallpaper, DEFAULT_WALLPAPER)
-    blur.value = num(v.blur, DEFAULT_BLUR)
-    bgBase.value = num(v.bgBase, DEFAULT_BG_BASE)
-    primaryAlpha.value = num(v.primaryAlpha, DEFAULT_PRIMARY_ALPHA)
-    borderHue.value = num(v.borderHue, DEFAULT_BORDER_HUE)
-    borderAlpha.value = num(v.borderAlpha, DEFAULT_BORDER_ALPHA)
-    borderWidth.value = num(v.borderWidth, DEFAULT_BORDER_WIDTH)
-    saturate.value = num(v.saturate, DEFAULT_SATURATE)
-  } catch {
-    // 存档损坏就当没存过，用默认值。
-  }
-  // 色块是独立 key，单独读 —— 一个 key 坏掉不该拖垮另一组。
-  try {
-    const raw = localStorage.getItem(LS_COLORS)
-    if (raw) {
-      const v = JSON.parse(raw) as Record<string, unknown>
-      const num = (x: unknown, fallback: number) =>
-        typeof x === 'number' && Number.isFinite(x) ? x : fallback
-      pillHueSuccess.value = num(v.pillHueSuccess, DEFAULT_HUE_SUCCESS)
-      pillHueInfo.value = num(v.pillHueInfo, DEFAULT_HUE_INFO)
-      pillHueWarning.value = num(v.pillHueWarning, DEFAULT_HUE_WARNING)
-      pillHueError.value = num(v.pillHueError, DEFAULT_HUE_ERROR)
-      pillHueNeutral.value = num(v.pillHueNeutral, DEFAULT_HUE_NEUTRAL)
-      pillAlpha.value = num(v.pillAlpha, DEFAULT_PILL_ALPHA)
-      sidebarActiveHue.value = num(v.sidebarActiveHue, DEFAULT_SIDEBAR_ACTIVE_HUE)
-      sidebarActiveAlpha.value = num(v.sidebarActiveAlpha, DEFAULT_SIDEBAR_ACTIVE_ALPHA)
-      sidebarHoverAlpha.value = num(v.sidebarHoverAlpha, DEFAULT_SIDEBAR_HOVER_ALPHA)
-      rowAlpha.value = num(v.rowAlpha, DEFAULT_ROW_ALPHA)
-      detailAlpha.value = num(v.detailAlpha, DEFAULT_DETAIL_ALPHA)
-    }
-  } catch {
-    // 同上。
-  }
+/** 从 store.config.theme 读一份赋给 22 个 ref；缺失时退回 design-tokens 默认值。 */
+function loadFromStore() {
+  const t: ThemeConfig = store.config?.theme ?? readThemeDefaults()
+  panelAlpha.value = t.panelAlpha
+  wallpaper.value = t.wallpaper
+  blur.value = t.blur
+  bgBase.value = t.bgBase
+  primaryAlpha.value = t.primaryAlpha
+  borderHue.value = t.borderHue
+  borderSat.value = t.borderSat
+  borderVal.value = t.borderVal
+  borderAlpha.value = t.borderAlpha
+  borderWidth.value = t.borderWidth
+  saturate.value = t.saturate
+  pillHueSuccess.value = t.pillHueSuccess
+  pillHueInfo.value = t.pillHueInfo
+  pillHueWarning.value = t.pillHueWarning
+  pillHueError.value = t.pillHueError
+  pillHueNeutral.value = t.pillHueNeutral
+  pillAlpha.value = t.pillAlpha
+  sidebarActiveHue.value = t.sidebarActiveHue
+  sidebarActiveAlpha.value = t.sidebarActiveAlpha
+  sidebarHoverAlpha.value = t.sidebarHoverAlpha
+  rowAlpha.value = t.rowAlpha
+  detailAlpha.value = t.detailAlpha
 }
 
-function saveValues() {
-  try {
-    localStorage.setItem(
-      LS_VALUES,
-      JSON.stringify({
-        panelAlpha: panelAlpha.value,
-        wallpaper: wallpaper.value,
-        blur: blur.value,
-        bgBase: bgBase.value,
-        primaryAlpha: primaryAlpha.value,
-        borderHue: borderHue.value,
-        borderAlpha: borderAlpha.value,
-        borderWidth: borderWidth.value,
-        saturate: saturate.value,
-      }),
-    )
-    // 色块单独落盘。
-    localStorage.setItem(LS_COLORS, JSON.stringify(colorValues()))
-  } catch {
-    // localStorage 不可写（隐私模式 / 配额满）时静默降级，不影响调参本身。
-  }
-}
-
-// 色块值单独取一份，供 LS_COLORS 使用。
-function colorValues() {
-  return {
-    pillHueSuccess: pillHueSuccess.value,
-    pillHueInfo: pillHueInfo.value,
-    pillHueWarning: pillHueWarning.value,
-    pillHueError: pillHueError.value,
-    pillHueNeutral: pillHueNeutral.value,
-    pillAlpha: pillAlpha.value,
-    sidebarActiveHue: sidebarActiveHue.value,
-    sidebarActiveAlpha: sidebarActiveAlpha.value,
-    sidebarHoverAlpha: sidebarHoverAlpha.value,
-    rowAlpha: rowAlpha.value,
-    detailAlpha: detailAlpha.value,
-  }
-}
-
-// 挂载：先读存档值，再统一写进 :root。
-// 顺序不能反 —— applyAll 读的是 ref，ref 必须先被存档覆盖。
+// 挂载：从 store 读一份值，再统一写进 :root。
+//
+// 不用 watch —— DebugPanel 在主区是 `v-else` 渲染的（见 AppContent.vue），
+// 每次切进「调参」tab 都会重新 mount。所以「切走再切回」天然回到 store 值，
+// 未保存的拖动被丢弃。
+// 顺序不能反 —— applyAll 读的是 ref，ref 必须先被 store 覆盖。
 onMounted(() => {
-  loadValues()
+  loadFromStore()
   loadGroups()
   applyAll()
 })
 
+// 「恢复默认」：复位 ref + 写 :root，但**不 POST**。
+// 用户还要点「保存」才固化；否则这是一个不可撤销的全局操作。
 function reset() {
   panelAlpha.value = DEFAULT_PANEL_ALPHA
   wallpaper.value = DEFAULT_WALLPAPER
@@ -369,12 +325,6 @@ function reset() {
   rowAlpha.value = DEFAULT_ROW_ALPHA
   detailAlpha.value = DEFAULT_DETAIL_ALPHA
   applyAll()
-  try {
-    localStorage.removeItem(LS_VALUES)
-    localStorage.removeItem(LS_COLORS)
-  } catch {
-    // 静默降级。
-  }
 }
 
 // applyAll：把当前 ref 全量写进 :root。只给 onMounted / reset 用 ——
@@ -405,10 +355,8 @@ function applyAll() {
   setDetailAlpha(detailAlpha.value)
 }
 
-// 每次改动后落盘。放在 applyAll 之后调用，保证存的是已生效的值。
-function persist() {
-  saveValues()
-}
+// 拖滑块只做即时预览：改 ref + 写 CSS 变量，**不落盘**。
+// 落盘由底部「保存」按钮负责（POST /api/config/theme）。
 
 // —— 分组折叠 ——
 //
@@ -439,11 +387,11 @@ const GROUPS: { id: string; title: string; items: SliderDef[] }[] = [
     title: '玻璃',
     items: [
       { var: '--bg-panel', label: '容器 alpha', min: 0, max: 0.6, step: 0.02, unit: '',
-        get: () => panelAlpha.value, set: (v) => { panelAlpha.value = v; setPanel(v); persist() } },
+        get: () => panelAlpha.value, set: (v) => { panelAlpha.value = v; setPanel(v) } },
       { var: '--glass-blur', label: '模糊半径', min: 0, max: 24, step: 2, unit: 'px',
-        get: () => blur.value, set: (v) => { blur.value = v; root().setProperty('--glass-blur', `${v}px`); persist() } },
+        get: () => blur.value, set: (v) => { blur.value = v; root().setProperty('--glass-blur', `${v}px`) } },
       { var: '--glass-saturate', label: '饱和度', min: 0.5, max: 2, step: 0.1, unit: '',
-        get: () => saturate.value, set: (v) => { saturate.value = v; setSaturate(); persist() } },
+        get: () => saturate.value, set: (v) => { saturate.value = v; setSaturate() } },
     ],
   },
   {
@@ -451,15 +399,15 @@ const GROUPS: { id: string; title: string; items: SliderDef[] }[] = [
     title: '边框',
     items: [
       { var: '--border-color', label: '边框色相', min: 0, max: 360, step: 1, unit: '°',
-        get: () => borderHue.value, set: (v) => { borderHue.value = v; setBorder(); persist() } },
+        get: () => borderHue.value, set: (v) => { borderHue.value = v; setBorder() } },
       { var: '--border-color', label: '边框饱和度', min: 0, max: 0.8, step: 0.02, unit: '',
-        get: () => borderSat.value, set: (v) => { borderSat.value = v; setBorder(); persist() } },
+        get: () => borderSat.value, set: (v) => { borderSat.value = v; setBorder() } },
       { var: '--border-color', label: '边框明度', min: 0, max: 1, step: 0.02, unit: '',
-        get: () => borderVal.value, set: (v) => { borderVal.value = v; setBorder(); persist() } },
+        get: () => borderVal.value, set: (v) => { borderVal.value = v; setBorder() } },
       { var: '--border-alpha', label: '边框深度', min: 0, max: 1, step: 0.05, unit: '',
-        get: () => borderAlpha.value, set: (v) => { borderAlpha.value = v; setBorder(); persist() } },
+        get: () => borderAlpha.value, set: (v) => { borderAlpha.value = v; setBorder() } },
       { var: '--border-width', label: '边框宽度', min: 0, max: 3, step: 0.5, unit: 'px',
-        get: () => borderWidth.value, set: (v) => { borderWidth.value = v; setBorder(); persist() } },
+        get: () => borderWidth.value, set: (v) => { borderWidth.value = v; setBorder() } },
     ],
   },
   {
@@ -467,14 +415,13 @@ const GROUPS: { id: string; title: string; items: SliderDef[] }[] = [
     title: '背景',
     items: [
       { var: '--wallpaper-opacity', label: '背景图 opacity', min: 0, max: 0.6, step: 0.02, unit: '',
-        get: () => wallpaper.value, set: (v) => { wallpaper.value = v; root().setProperty('--wallpaper-opacity', String(v)); persist() } },
+        get: () => wallpaper.value, set: (v) => { wallpaper.value = v; root().setProperty('--wallpaper-opacity', String(v)) } },
       { var: '--bg-body', label: '淡蓝底明度', min: 220, max: 250, step: 5, unit: '',
-        get: () => bgBase.value, set: (v) => { bgBase.value = v; root().setProperty('--bg-body', bodyColor(v)); persist() } },
+        get: () => bgBase.value, set: (v) => { bgBase.value = v; root().setProperty('--bg-body', bodyColor(v)) } },
       { var: '--primary-color', label: '主色 alpha', min: 0.5, max: 1, step: 0.05, unit: '',
         get: () => primaryAlpha.value, set: (v) => {
           primaryAlpha.value = v
           root().setProperty('--primary-color', `rgba(${PR}, ${PG}, ${PB}, ${v})`)
-          persist()
         } },
     ],
   },
@@ -483,27 +430,27 @@ const GROUPS: { id: string; title: string; items: SliderDef[] }[] = [
     title: '色块',
     items: [
       { var: '--state-success', label: '状态·成功 色相', min: 0, max: 360, step: 1, unit: '°',
-        get: () => pillHueSuccess.value, set: (v) => { pillHueSuccess.value = v; setPillHue('success', v); persist() } },
+        get: () => pillHueSuccess.value, set: (v) => { pillHueSuccess.value = v; setPillHue('success', v) } },
       { var: '--state-info', label: '状态·信息 色相', min: 0, max: 360, step: 1, unit: '°',
-        get: () => pillHueInfo.value, set: (v) => { pillHueInfo.value = v; setPillHue('info', v); persist() } },
+        get: () => pillHueInfo.value, set: (v) => { pillHueInfo.value = v; setPillHue('info', v) } },
       { var: '--state-warning', label: '状态·警告 色相', min: 0, max: 360, step: 1, unit: '°',
-        get: () => pillHueWarning.value, set: (v) => { pillHueWarning.value = v; setPillHue('warning', v); persist() } },
+        get: () => pillHueWarning.value, set: (v) => { pillHueWarning.value = v; setPillHue('warning', v) } },
       { var: '--state-error', label: '状态·错误 色相', min: 0, max: 360, step: 1, unit: '°',
-        get: () => pillHueError.value, set: (v) => { pillHueError.value = v; setPillHue('error', v); persist() } },
+        get: () => pillHueError.value, set: (v) => { pillHueError.value = v; setPillHue('error', v) } },
       { var: '--state-neutral', label: '状态·中性 色相', min: 0, max: 360, step: 1, unit: '°',
-        get: () => pillHueNeutral.value, set: (v) => { pillHueNeutral.value = v; setPillHue('neutral', v); persist() } },
+        get: () => pillHueNeutral.value, set: (v) => { pillHueNeutral.value = v; setPillHue('neutral', v) } },
       { var: '--pill-alpha', label: '状态 pill 背景 alpha', min: 0, max: 1, step: 0.02, unit: '',
-        get: () => pillAlpha.value, set: (v) => { pillAlpha.value = v; setPillAlpha(v); persist() } },
+        get: () => pillAlpha.value, set: (v) => { pillAlpha.value = v; setPillAlpha(v) } },
       { var: '--sidebar-active-color', label: '侧栏激活 色相', min: 0, max: 360, step: 1, unit: '°',
-        get: () => sidebarActiveHue.value, set: (v) => { sidebarActiveHue.value = v; setSidebarActiveHue(v); persist() } },
+        get: () => sidebarActiveHue.value, set: (v) => { sidebarActiveHue.value = v; setSidebarActiveHue(v) } },
       { var: '--sidebar-active-alpha', label: '侧栏激活 背景 alpha', min: 0, max: 1, step: 0.02, unit: '',
-        get: () => sidebarActiveAlpha.value, set: (v) => { sidebarActiveAlpha.value = v; setSidebarActiveAlpha(v); persist() } },
+        get: () => sidebarActiveAlpha.value, set: (v) => { sidebarActiveAlpha.value = v; setSidebarActiveAlpha(v) } },
       { var: '--sidebar-hover-alpha', label: '侧栏 hover 背景 alpha', min: 0, max: 1, step: 0.02, unit: '',
-        get: () => sidebarHoverAlpha.value, set: (v) => { sidebarHoverAlpha.value = v; setSidebarHoverAlpha(v); persist() } },
+        get: () => sidebarHoverAlpha.value, set: (v) => { sidebarHoverAlpha.value = v; setSidebarHoverAlpha(v) } },
       { var: '--row-alpha', label: '任务行 背景 alpha', min: 0, max: 1, step: 0.02, unit: '',
-        get: () => rowAlpha.value, set: (v) => { rowAlpha.value = v; setRowAlpha(v); persist() } },
+        get: () => rowAlpha.value, set: (v) => { rowAlpha.value = v; setRowAlpha(v) } },
       { var: '--detail-alpha', label: '详情面板 背景 alpha', min: 0, max: 1, step: 0.02, unit: '',
-        get: () => detailAlpha.value, set: (v) => { detailAlpha.value = v; setDetailAlpha(v); persist() } },
+        get: () => detailAlpha.value, set: (v) => { detailAlpha.value = v; setDetailAlpha(v) } },
     ],
   },
 ]
@@ -577,6 +524,8 @@ function currentValues() {
     bgBase: bgBase.value,
     primaryAlpha: primaryAlpha.value,
     borderHue: borderHue.value,
+    borderSat: borderSat.value,
+    borderVal: borderVal.value,
     borderAlpha: borderAlpha.value,
     borderWidth: borderWidth.value,
     saturate: saturate.value,
@@ -595,10 +544,35 @@ function currentValues() {
   }
 }
 
-// 导出 JSON：给用户粘贴回对话用，所以带缩进、字段名和 token 名对应。
+// 导出 JSON：导出的是**当前拖动的临时值（未保存）**，不是后端已存的值 ——
+// 因为它的用途是把调好的配色粘回对话、固化进 design-tokens.ts 变成代码默认值。
+// 想导出后端已存的值，先刷新页面再从后端读回。
 function exportJson() {
   const text = JSON.stringify(currentValues(), null, 2)
   navigator.clipboard.writeText(text).then(flash)
+}
+
+// 「保存」：把当前 22 个值 POST 到后端，持久化到 config.json，跨设备生效。
+const saving = ref(false)
+
+async function handleSave() {
+  saving.value = true
+  try {
+    const values = currentValues()
+    const result = await commands.saveTheme(values)
+    if (result.status === 'error') {
+      message.error(`保存失败：${result.error.err_message}`)
+      return
+    }
+    // 更新 store —— 展开一层拷贝是关键：不能让 store 持有的对象和这里的
+    // ref 共享引用，否则用户继续拖滑块会直接改到 store，绕过「保存」。
+    if (store.config) {
+      store.config.theme = { ...values }
+    }
+    message.success('主题已保存')
+  } finally {
+    saving.value = false
+  }
 }
 </script>
 
@@ -678,7 +652,16 @@ function exportJson() {
 
     <!-- 底部固定按钮行：右对齐，primary + ghost 组合 -->
     <div class="shrink-0 flex justify-end items-center" style="margin-top: 16px; gap: 8px;">
-      <n-button data-debug-export type="primary" size="small" @click="exportJson">
+      <n-button
+        data-debug-save
+        type="primary"
+        size="small"
+        :loading="saving"
+        :disabled="saving"
+        @click="handleSave">
+        保存
+      </n-button>
+      <n-button data-debug-export size="small" ghost @click="exportJson">
         {{ copied ? '已复制 ✓' : '导出 JSON' }}
       </n-button>
       <n-button data-debug-reset size="small" ghost @click="reset">

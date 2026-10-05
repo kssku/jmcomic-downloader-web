@@ -40,6 +40,73 @@ pub struct Config {
     #[serde(default = "default_catalog_batch")]
     pub catalog_fill_batch: usize,
     pub api_base_url: String,
+
+    /// 调参面板的视觉参数。单独成结构体而非平铺：语义与下载配置无关，
+    /// 且默认值/迁移自成一档，不污染 `Config` 的 40 个顶层 key。
+    #[serde(default)]
+    pub theme: ThemeConfig,
+}
+
+/// 调参面板的 22 个视觉参数。全部是标量，默认值与前端
+/// `src/design-tokens.ts` / `src/components/DebugPanel.vue` 的 `DEFAULT_*` 同源。
+///
+/// ⚠️ 默认值三处必须同步：`design-tokens.ts`（CSS 变量初始值）、
+/// `DebugPanel.vue` 的 `DEFAULT_*` 常量、这里的 `impl Default`。
+/// 改任一处时，另两处一起改。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemeConfig {
+    pub panel_alpha: f64,
+    pub wallpaper: f64,
+    pub blur: f64,
+    pub bg_base: f64,
+    pub primary_alpha: f64,
+    pub border_hue: f64,
+    pub border_sat: f64,
+    pub border_val: f64,
+    pub border_alpha: f64,
+    pub border_width: f64,
+    pub saturate: f64,
+    pub pill_hue_success: f64,
+    pub pill_hue_info: f64,
+    pub pill_hue_warning: f64,
+    pub pill_hue_error: f64,
+    pub pill_hue_neutral: f64,
+    pub pill_alpha: f64,
+    pub sidebar_active_hue: f64,
+    pub sidebar_active_alpha: f64,
+    pub sidebar_hover_alpha: f64,
+    pub row_alpha: f64,
+    pub detail_alpha: f64,
+}
+
+impl Default for ThemeConfig {
+    fn default() -> Self {
+        ThemeConfig {
+            panel_alpha: 0.18,
+            wallpaper: 0.6,
+            blur: 0.0,
+            bg_base: 225.0,
+            primary_alpha: 1.0,
+            border_hue: 0.0,
+            border_sat: 0.6,
+            border_val: 0.7,
+            border_alpha: 1.0,
+            border_width: 3.0,
+            saturate: 1.2,
+            pill_hue_success: 144.0,
+            pill_hue_info: 213.0,
+            pill_hue_warning: 20.0,
+            pill_hue_error: 352.0,
+            pill_hue_neutral: 240.0,
+            pill_alpha: 0.14,
+            sidebar_active_hue: 33.0,
+            sidebar_active_alpha: 0.10,
+            sidebar_hover_alpha: 0.44,
+            row_alpha: 0.44,
+            detail_alpha: 0.44,
+        }
+    }
 }
 
 impl Config {
@@ -127,6 +194,7 @@ impl Config {
             // 不要填 18comic.vip 等网页版域名：那是网页路由，会被 Cloudflare
             // JS 挑战（HTTP 403 "Just a moment..."）拦掉，拿不到 JSON。
             api_base_url: crate::jm_client::API_DOMAIN_2.to_string(),
+            theme: ThemeConfig::default(),
         }
     }
 }

@@ -13,7 +13,7 @@ use serde::Deserialize;
 
 use crate::api::{commands, error::ApiError, ws};
 use crate::auth::{require_auth, AuthConfig};
-use crate::config::Config;
+use crate::config::{Config, ThemeConfig};
 use crate::context::AppContext;
 use crate::errors::CommandError;
 use crate::events::DownloadTaskEvent;
@@ -49,6 +49,9 @@ pub fn router(app: AppContext, auth: AuthConfig) -> Router {
     let protected = Router::new()
         // ── 配置 ──────────────────────────────────────────
         .route("/config", get(get_config).post(save_config))
+        // 只写 theme 一个字段。调参面板不该知道整个 Config 结构，
+        // 也不该有「读到旧 config → 覆盖别人刚改的字段」的竞态。
+        .route("/config/theme", post(save_theme))
         // ── 搜索 / 漫画详情（自 c91d294^ 恢复）─────────────
         // 前端搜索 pane 与章节 pane 依赖这两个端点，语义与
         // `bindings.ts` 的 `searchComic` / `getComic` 一一对应。
@@ -138,6 +141,32 @@ async fn save_config(
     Json(config): Json<Config>,
 ) -> Result<Json<()>, ApiError> {
     handle!("保存配置失败", commands::save_config(&state.app, config))?;
+    Ok(Json(()))
+}
+
+/// 只保存主题字段。
+///
+/// 与 `save_config` 的区别：请求体是裸 `ThemeConfig`，不要求完整的 `Config`。
+/// 这样调参面板只需发 22 个数字，不必先读一份完整 config 再改字段 ——
+/// 否则它要么知道整个 Config 结构，要么在「读到旧 config」的窗口里
+/// 把别人刚改的下载参数覆盖回去。
+///
+/// 写锁内「改 theme + 落盘」是原子的，与并发的 `/config` POST 不会互相丢失。
+async fn save_theme(
+    State(state): State<AppState>,
+    Json(theme): Json<ThemeConfig>,
+) -> Result<Json<()>, ApiError> {
+    let app = &state.app;
+    let updated = {
+        let mut config = app.config().write();
+        config.theme = theme;
+        config.clone()
+    };
+    // 这里直接落盘，不走 commands::save_config：后者会顺带重建 HTTP 客户端、
+    // 调整并发信号量、重载文件日志——那些是下载配置的副作用，主题变更不需要，
+    // 而且它内部会 config_read() 一份旧值做对比，和我们刚写的主题不是同一份。
+    app.save_config(&updated)
+        .map_err(|err| ApiError(CommandError::from("保存主题失败", err)))?;
     Ok(Json(()))
 }
 

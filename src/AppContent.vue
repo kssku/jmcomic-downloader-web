@@ -26,6 +26,7 @@ import LogDialog from './dialogs/LogDialog.vue'
 import BatchDownloadPane from './panes/BatchDownloadPane.vue'
 import ExportPane from './panes/ExportPane.vue'
 import DebugPanel from './components/DebugPanel.vue'
+import { applyTheme, readThemeDefaults } from './debug-theme.ts'
 import { CurrentTabName } from './types.ts'
 
 const store = useStore()
@@ -70,6 +71,11 @@ onMounted(async () => {
   }
   // 获取配置
   store.config = await commands.getConfig()
+  // 主题：把后端存的 22 个视觉参数写进 :root 的 inline style。
+  // 必须在启动时做 —— DebugPanel 是懒加载的（下面 `v-else`），用户不打开
+  // 「调参」就不会 mount，主题值放着不应用等于没存。
+  // theme 缺失时（旧后端 / 网络异常）退回 design-tokens 的默认值。
+  applyTheme(store.config.theme ?? readThemeDefaults())
   // 若本地已保存 token（上次登录过），写入后建立 WebSocket 连接。
   // 即使 token 为空（后端关闭了认证），也照样连接，否则收不到下载进度事件。
   if (store.config.token !== undefined && store.config.token !== '') {
