@@ -16,7 +16,7 @@ use crate::errors::{CommandError, CommandResult};
 use crate::extensions::AppContextExt;
 use crate::responses::SearchResp;
 use crate::store::{DbImage, DbTask, DbTaskState, ImageRepo, TaskRepo, TaskStats};
-use crate::types::{ChapterInfo, Comic, SearchResult, SearchSort};
+use crate::types::{ChapterInfo, Comic, ComicInSearch, SearchResult, SearchSort};
 use crate::utils;
 
 // ════════════════════════════════════════════════════════════════
@@ -969,7 +969,73 @@ pub struct ExportedCbz {
 // ════════════════════════════════════════════════════════════════
 
 
+// ════════════════════════════════════════════════════════════════
+// 前端字段同步（自 068f36c^ 恢复）
+// ════════════════════════════════════════════════════════════════
+
+/// 扫描下载目录，把 `Comic` 里的 `isDownloaded` / `comicDownloadDir`
+/// 等字段按本地实际情况补齐。纯本地 IO，不碰网络。
+pub fn get_synced_comic(app: &AppContext, mut comic: Comic) -> CommandResult<Comic> {
+    let id_to_dir_map = utils::create_id_to_dir_map(app)
+        .context("创建漫画ID到下载目录映射失败")
+        .map_err(|err| {
+            CommandError::from(&format!("漫画`{}`同步Comic的字段失败", comic.name), err)
+        })?;
+
+    comic.update_fields(&id_to_dir_map).map_err(|err| {
+        CommandError::from(&format!("漫画`{}`同步Comic的字段失败", comic.name), err)
+    })?;
+
+    Ok(comic)
+}
+
+/// 同上，但作用于搜索结果里的条目（字段更少）。
+pub fn get_synced_comic_in_search(
+    app: &AppContext,
+    mut comic: ComicInSearch,
+) -> CommandResult<ComicInSearch> {
+    let id_to_dir_map = utils::create_id_to_dir_map(app)
+        .context("创建漫画ID到下载目录映射失败")
+        .map_err(|err| {
+            let err_title = format!("漫画`{}`同步ComicInSearch的字段失败", comic.name);
+            CommandError::from(&err_title, err)
+        })?;
+
+    comic.update_fields(&id_to_dir_map);
+
+    Ok(comic)
+}
+
+// ════════════════════════════════════════════════════════════════
+// 杂项（自 068f36c^ / c91d294^ 恢复）
+// ════════════════════════════════════════════════════════════════
+
+/// 日志目录大小（字节）。用于后台「日志」页面显示占用。
+pub fn get_logs_dir_size(app: &AppContext) -> CommandResult<u64> {
+    let logs_dir = app.paths().logs_dir();
+
+    let size = std::fs::read_dir(&logs_dir)
+        .context(format!("读取日志目录`{}`失败", logs_dir.display()))
+        .map_err(|err| CommandError::from("获取日志目录大小失败", err))?
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.metadata().ok())
+        .map(|metadata| metadata.len())
+        .sum::<u64>();
+
+    tracing::debug!("获取日志目录大小成功");
+    Ok(size)
+}
+
 /// 当前后端版本与运行状态，给前端「关于」页用。
+pub fn get_server_info(app: &AppContext) -> serde_json::Value {
+    serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "dataDir": app.paths().data_dir.to_string_lossy(),
+        "downloadDir": app.config_read().download_dir.to_string_lossy(),
+        "eventSubscribers": app.events().receiver_count(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{purge_cutoff, DEFAULT_PURGE_RETENTION_DAYS};
