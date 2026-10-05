@@ -3,8 +3,14 @@
 // Check out https://vuejs.org/api/sfc-script-setup.html#script-setup
 import AppContent from './AppContent.vue'
 import { GlobalThemeOverrides } from 'naive-ui'
+import { violetThemeOverrides } from './theme'
 
-const themeOverrides: GlobalThemeOverrides = {
+// 主题开关：默认走紫色（violetThemeOverrides）。
+// 老板原设计（粉色）保留为备选，改这里即可切回。
+const USE_VIOLET_THEME = true
+
+// 备选：老板原设计（粉色）。保留不删。
+const pinkThemeOverrides: GlobalThemeOverrides = {
   common: {
     primaryColor: '#DB547C',
     primaryColorHover: '#E87D9A',
@@ -36,6 +42,8 @@ const themeOverrides: GlobalThemeOverrides = {
     colorSegment: '#FFFFFFFF',
   },
 }
+
+const themeOverrides = USE_VIOLET_THEME ? violetThemeOverrides : pinkThemeOverrides
 </script>
 
 <template>

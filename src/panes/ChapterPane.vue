@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { SelectionArea, SelectionEvent } from '@viselect/vue'
 import { nextTick, ref, watch, watchEffect, computed } from 'vue'
 import { ChapterInfo, commands, DownloadTaskState } from '../bindings.ts'
@@ -172,7 +172,7 @@ function isDownloading(state: State) {
       @contextmenu="onContextMenu"
       @move="updateSelectedIds"
       @start="unselectAll">
-      <n-checkbox-group v-model:value="checkedIds" class="grid grid-cols-3 gap-1.5">
+      <n-checkbox-group v-model:value="checkedIds" class="chapter-grid">
         <n-checkbox
           v-for="{ chapterId, chapterTitle, isDownloaded, state } in chapterInfos"
           :key="chapterId"
@@ -216,20 +216,29 @@ function isDownloading(state: State) {
 </template>
 
 <style scoped>
+/* 章节网格：auto-fill + 最小列宽 110px。
+   写死 3 列时每列会被拉到约 240px，复选框过长；
+   auto-fill 会在 742px 主区下自动排出 6-7 列。 */
+.chapter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 6px;
+}
+
 .selection-container {
   @apply select-none;
 }
 
 .selection-container .selected {
-  @apply bg-[rgb(204,232,255)];
+  background-color: color-mix(in srgb, var(--primary-color) 25%, transparent);
 }
 
 .selection-container .downloaded {
-  @apply bg-[rgba(24,160,88,0.16)];
+  background-color: color-mix(in srgb, var(--success-color) 16%, transparent);
 }
 
 .selection-container .downloading {
-  @apply bg-[rgba(114,46,209,0.16)];
+  background-color: color-mix(in srgb, var(--primary-color) 16%, transparent);
 }
 
 :deep(.n-checkbox__label) {
@@ -237,6 +246,6 @@ function isDownloading(state: State) {
 }
 
 :global(.selection-area) {
-  @apply bg-[rgba(46,115,252,0.5)];
+  background-color: color-mix(in srgb, var(--primary-color) 50%, transparent);
 }
 </style>

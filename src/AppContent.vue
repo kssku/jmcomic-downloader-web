@@ -6,12 +6,25 @@ import LoginDialog from './dialogs/LoginDialog.vue'
 import SearchPane from './panes/SearchPane.vue'
 import ChapterPane from './panes/ChapterPane.vue'
 import ProgressesPane from './panes/ProgressesPane/ProgressesPane.vue'
+import TaskDetailPane from './panes/TaskDetailPane.vue'
 import SettingsDialog from './dialogs/SettingsDialog.vue'
-import { PhInfo, PhUser, PhClockCounterClockwise, PhGearSix } from '@phosphor-icons/vue'
+import {
+  PhInfo,
+  PhUser,
+  PhClockCounterClockwise,
+  PhGearSix,
+  PhMagnifyingGlass,
+  PhDownloadSimple,
+  PhListChecks,
+  PhListBullets,
+  PhSlidersHorizontal,
+} from '@phosphor-icons/vue'
 import AboutDialog from './dialogs/AboutDialog.vue'
 import { useStore } from './store.ts'
 import LogDialog from './dialogs/LogDialog.vue'
-import BatchDownloadPane from './panes/BatchDownloadPane.vue'  // 新增导入
+import BatchDownloadPane from './panes/BatchDownloadPane.vue'
+import DebugPanel from './components/DebugPanel.vue'
+import { CurrentTabName } from './types.ts'
 
 const store = useStore()
 
@@ -22,6 +35,16 @@ const loginDialogShowing = ref<boolean>(false)
 const settingsDialogShowing = ref<boolean>(false)
 const aboutDialogShowing = ref<boolean>(false)
 const logViewerShowing = ref<boolean>(false)
+
+// 侧栏菜单：paneMenu 里的项切换主区内容，下面的日志/配置/关于打开弹窗。
+// 用一个数组驱动渲染，免得模板里写五份几乎相同的按钮。
+const paneMenu: { name: CurrentTabName; label: string; icon: unknown }[] = [
+  { name: 'progresses', label: '下载列表', icon: PhListBullets },
+  { name: 'search', label: '搜索', icon: PhMagnifyingGlass },
+  { name: 'chapter', label: '章节详情', icon: PhListChecks },
+  { name: 'batch', label: '批量下载', icon: PhDownloadSimple },
+  { name: 'debug', label: '调参', icon: PhSlidersHorizontal },
+]
 
 watch(
   () => store.config,
@@ -90,9 +113,18 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div v-if="store.config !== undefined" class="h-screen flex flex-col">
-    <div class="flex gap-col-1 pt-2 px-2">
-      <n-input-group>
+  <div v-if="store.config !== undefined" class="h-screen flex flex-col gap-2 p-2">
+    <!-- 顶栏：搜索框 + 登录。跨整个宽度，右侧留给用户信息。 -->
+    <div
+      class="h-13 flex gap-col-1 px-2 shrink-0 rounded-lg"
+      style="
+        background: var(--bg-panel);
+        backdrop-filter: blur(var(--glass-blur, 2px)) saturate(var(--glass-saturate, 1.2));
+        -webkit-backdrop-filter: blur(var(--glass-blur, 2px)) saturate(var(--glass-saturate, 1.2));
+        border: var(--border-width) solid
+          color-mix(in srgb, var(--border-color) calc(var(--border-alpha) * 100%), transparent);
+      ">
+      <n-input-group class="my-auto">
         <n-input-group-label>Authorization</n-input-group-label>
         <n-input v-model:value="store.config.token" placeholder="手动输入或点击右侧的按钮登录" clearable />
         <n-button type="primary" @click="loginDialogShowing = true">
@@ -104,60 +136,80 @@ onMounted(async () => {
           登录
         </n-button>
       </n-input-group>
-      <div v-if="store.userProfile !== undefined" class="flex items-center">
-        <n-avatar
-          round
-          :size="32"
-          :src="store.userProfile.photo"
-          fallback-src="/favicon.png" />
+      <div v-if="store.userProfile !== undefined" class="flex items-center shrink-0">
+        <n-avatar round :size="32" :src="store.userProfile.photo" fallback-src="/favicon.png" />
         <span class="whitespace-nowrap">{{ store.userProfile.username }}</span>
       </div>
     </div>
 
-    <div class="flex overflow-hidden flex-1">
-      <n-tabs class="h-full w-1/2" v-model:value="store.currentTabName" type="line" size="small" animated>
-        <n-tab-pane class="h-full overflow-auto p-0!" name="search" tab="搜索" display-directive="show">
-          <search-pane />
-        </n-tab-pane>
-        <n-tab-pane class="h-full overflow-auto p-0!" name="chapter" tab="章节详情" display-directive="show">
-          <chapter-pane />
-        </n-tab-pane>
-        <!-- 新增批量下载标签页 -->
-        <n-tab-pane class="h-full overflow-auto p-0!" name="batch" tab="批量下载" display-directive="show">
-          <BatchDownloadPane />
-        </n-tab-pane>
-      </n-tabs>
+    <div class="flex gap-2 overflow-hidden flex-1">
+      <!-- 侧栏：180px 图标+文字菜单。菜单项切主区，弹窗项直接开窗。 -->
+      <div
+        class="w-[180px] shrink-0 box-border flex flex-col py-4.5 px-3 gap-1 rounded-lg"
+        style="
+          background: var(--bg-panel);
+          backdrop-filter: blur(var(--glass-blur, 2px)) saturate(var(--glass-saturate, 1.2));
+          -webkit-backdrop-filter: blur(var(--glass-blur, 2px)) saturate(var(--glass-saturate, 1.2));
+          border: var(--border-width) solid
+            color-mix(in srgb, var(--border-color) calc(var(--border-alpha) * 100%), transparent);
+        ">
+        <div class="text-lg font-bold px-3 pb-3 select-none">JM Downloader</div>
+        <button
+          v-for="{ name, label, icon } in paneMenu"
+          :key="name"
+          class="sidebar-item"
+          :class="{ active: store.currentTabName === name }"
+          @click="store.currentTabName = name">
+          <n-icon :size="18">
+            <component :is="icon" />
+          </n-icon>
+          <span>{{ label }}</span>
+        </button>
+        <div class="flex-1"></div>
+        <button class="sidebar-item" @click="logViewerShowing = true">
+          <n-icon :size="18"><PhClockCounterClockwise /></n-icon>
+          <span>日志</span>
+        </button>
+        <button class="sidebar-item" @click="settingsDialogShowing = true">
+          <n-icon :size="18"><PhGearSix /></n-icon>
+          <span>配置</span>
+        </button>
+        <button class="sidebar-item" @click="aboutDialogShowing = true">
+          <n-icon :size="18"><PhInfo /></n-icon>
+          <span>关于</span>
+        </button>
+      </div>
 
-      <div class="w-1/2 overflow-auto flex flex-col">
+      <!-- 主区：60% 内容 + 40% 详情。内容列按侧栏菜单切换 pane。 -->
+      <div class="flex-1 flex gap-2 overflow-hidden">
         <div
-          class="h-8.5 flex gap-col-1 mx-2 items-center border-solid border-0 border-b box-border border-[rgb(239,239,245)]">
-          <div class="text-xl font-bold box-border">下载列表</div>
-          <n-button class="ml-auto" size="small" @click="logViewerShowing = true">
-            <template #icon>
-              <n-icon size="20">
-                <PhClockCounterClockwise />
-              </n-icon>
-            </template>
-            日志
-          </n-button>
-          <n-button size="small" @click="settingsDialogShowing = true">
-            <template #icon>
-              <n-icon size="20">
-                <PhGearSix />
-              </n-icon>
-            </template>
-            配置
-          </n-button>
-          <n-button size="small" @click="aboutDialogShowing = true">
-            <template #icon>
-              <n-icon size="20">
-                <PhInfo />
-              </n-icon>
-            </template>
-            关于
-          </n-button>
+          class="basis-60% shrink-0 box-border overflow-auto flex flex-col rounded-lg"
+          style="
+            background: var(--bg-panel);
+            backdrop-filter: blur(var(--glass-blur, 2px)) saturate(var(--glass-saturate, 1.2));
+            -webkit-backdrop-filter: blur(var(--glass-blur, 2px)) saturate(var(--glass-saturate, 1.2));
+            border: var(--border-width) solid
+              color-mix(in srgb, var(--border-color) calc(var(--border-alpha) * 100%), transparent);
+          ">
+          <progresses-pane v-if="store.currentTabName === 'progresses'" />
+          <search-pane v-else-if="store.currentTabName === 'search'" />
+          <chapter-pane v-else-if="store.currentTabName === 'chapter'" />
+          <BatchDownloadPane v-else-if="store.currentTabName === 'batch'" />
+          <DebugPanel v-else />
         </div>
-        <progresses-pane />
+
+        <!-- 详情列：选中任务时显示详情，未选中时显示空状态。 -->
+        <div
+          class="flex-1 box-border overflow-auto flex flex-col rounded-lg"
+          style="
+            background: color-mix(in srgb, var(--bg-card) calc(var(--detail-alpha) * 100%), transparent);
+            backdrop-filter: blur(var(--glass-blur, 2px)) saturate(var(--glass-saturate, 1.2));
+            -webkit-backdrop-filter: blur(var(--glass-blur, 2px)) saturate(var(--glass-saturate, 1.2));
+            border: var(--border-width) solid
+              color-mix(in srgb, var(--border-color) calc(var(--border-alpha) * 100%), transparent);
+          ">
+          <task-detail-pane />
+        </div>
       </div>
     </div>
 
@@ -177,7 +229,40 @@ onMounted(async () => {
   @apply h-full;
 }
 
-:deep(.n-tabs-nav) {
-  @apply px-2;
+/* 侧栏菜单项：42px 高、10px 圆角。
+   active 态对齐任务行的视觉语言：3px 粉竖条 + 粉字 + 10% 粉底。 */
+.sidebar-item {
+  @apply flex items-center gap-2.5 px-3 text-sm cursor-pointer select-none border-0 bg-transparent text-left;
+  box-sizing: border-box;
+  height: 42px;
+  border-radius: 10px;
+  color: var(--text-secondary);
+  position: relative;
+  width: 100%;
+  font-family: inherit;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.sidebar-item:hover {
+  /* hover 背景 alpha 由调试面板的 --sidebar-hover-alpha 控制。 */
+  background: color-mix(in srgb, var(--bg-raised) calc(var(--sidebar-hover-alpha) * 100%), transparent);
+}
+
+.sidebar-item.active {
+  /* 色相走 --sidebar-active-color（默认=主色），alpha 走 --sidebar-active-alpha。 */
+  background: color-mix(in srgb, var(--sidebar-active-color) calc(var(--sidebar-active-alpha) * 100%), transparent);
+  color: var(--sidebar-active-color);
+  font-weight: 600;
+}
+
+.sidebar-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--primary-color);
+  border-radius: 3px 0 0 3px;
 }
 </style>

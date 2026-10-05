@@ -192,7 +192,7 @@ onMounted(async () => {
         <span class="font-bold mt-2">其他</span>
         <n-checkbox class="w-fit" v-model:checked="store.config.shouldDownloadCover">下载封面</n-checkbox>
 
-        <div class="ml-auto mt-2 flex flex-col items-end text-xs text-gray-400">
+        <div class="ml-auto mt-2 flex flex-col items-end text-xs text-[var(--text-secondary)]">
           <span>配置文件：{{ configPathHint }}</span>
           <span>下载目录：{{ downloadDirHint }}</span>
         </div>

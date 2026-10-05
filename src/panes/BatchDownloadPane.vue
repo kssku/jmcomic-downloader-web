@@ -56,24 +56,34 @@ async function startBatchDownload() {
 
 <template>
   <div class="h-full flex flex-col p-4 gap-4">
-    <div class="flex-1 flex flex-col">
-      <span class="text-sm text-gray-500">每行输入一个漫画ID，或用逗号/空格分隔</span>
+    <!-- 内容左对齐（不用 items-center），并把宽度收到 560px：
+         再宽眼睛扫行会累。按钮与输入框同宽。 -->
+    <div class="batch-form flex flex-col">
+      <span class="text-sm text-[var(--text-secondary)]">每行输入一个漫画ID，或用逗号/空格分隔</span>
       <n-input
         v-model:value="idsInput"
         type="textarea"
         placeholder="例如：&#10;67a18a90cac76a1659ab71f5&#10;5c8f8f8f8f8f8f8f8f8f8f8f"
-        :autosize="{ minRows: 8, maxRows: 20 }"
-        class="flex-1"
+        :autosize="{ minRows: 10, maxRows: 16 }"
       />
+      <n-button
+        type="primary"
+        size="large"
+        :loading="loading"
+        :disabled="loading"
+        class="mt-4 w-full"
+        @click="startBatchDownload"
+      >
+        开始批量下载
+      </n-button>
     </div>
-    <n-button
-      type="primary"
-      size="large"
-      :loading="loading"
-      :disabled="loading"
-      @click="startBatchDownload"
-    >
-      开始批量下载
-    </n-button>
   </div>
 </template>
+
+<style scoped>
+/* textarea 与按钮同宽，上限 560px；左对齐，与页面其他区域视觉语言一致。 */
+.batch-form {
+  width: 100%;
+  max-width: 560px;
+}
+</style>

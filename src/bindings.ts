@@ -63,6 +63,49 @@ export type DownloadTaskState =
   | "Completed"
   | "Failed";
 
+/**
+ * `GET /api/tasks` 单条记录。对应后端 `commands::TaskView`。
+ *
+ * 注意 `state` 是小写字符串（`"completed"`），与 WebSocket 事件的
+ * PascalCase `DownloadTaskState` 不同 —— 从本接口拿到的记录必须先过
+ * `api/state-adapter.ts` 的 `normalizeState()`，再写入 store。
+ */
+export type TaskView = {
+  chapterId: string;
+  comicId: string;
+  comicTitle: string;
+  chapterTitle: string;
+  chapterOrder: number;
+  state: string;
+  totalImgCount: number;
+  doneImgCount: number;
+  /** 已完成百分比，0-100，一位小数。 */
+  progress: number;
+  retryCount: number;
+  lastError: string | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+/** `GET /api/tasks` 的响应。对应后端 `commands::TaskListView`。 */
+export type TaskListView = {
+  total: number;
+  limit: number;
+  offset: number;
+  tasks: TaskView[];
+};
+
+/** `GET /api/tasks` 的查询参数。参数名与后端 `TasksQuery` 对齐。 */
+export type ListTasksParams = {
+  /** 小写状态名（`"completed"` 等）。空字符串等同不过滤。 */
+  state?: string;
+  comicId?: string;
+  /** 增量游标（Unix 秒）：只返回 `updated_at >= since` 的记录。 */
+  since?: number;
+  limit?: number;
+  offset?: number;
+};
+
 export type Config = {
   token: string;
   downloadDir: string;
@@ -405,6 +448,32 @@ export const commands = {
 	): Promise<Result<ComicInSearch, CommandError>> {
 		return await callResult<ComicInSearch>(() =>
 			post("/api/sync/comic-in-search", { comic }),
+		);
+	},
+
+	/**
+	 * `GET /api/tasks` —— 分页查询任务列表，真相源是数据库。
+	 *
+	 * 与 WebSocket 路径的分工：
+	 *   - 本接口：首次加载 / 手动刷新 / 切换筛选，拿完整列表（含历史任务）
+	 *   - WebSocket：实时增量 patch
+	 *
+	 * 注意返回的 `TaskView.state` 是**小写**（`"completed"`），与 WS 事件的
+	 * PascalCase 不同。调用方写入 store 前必须过 `normalizeState()`。
+	 */
+	async listTasks(params: ListTasksParams = {}): Promise<
+		Result<TaskListView, CommandError>
+	> {
+		const query = new URLSearchParams();
+		if (params.state) query.set("state", params.state);
+		if (params.comicId) query.set("comicId", params.comicId);
+		if (params.since !== undefined) query.set("since", String(params.since));
+		if (params.limit !== undefined) query.set("limit", String(params.limit));
+		if (params.offset !== undefined) query.set("offset", String(params.offset));
+
+		const qs = query.toString();
+		return await callResult<TaskListView>(() =>
+			get(`/api/tasks${qs ? `?${qs}` : ""}`),
 		);
 	},
 };

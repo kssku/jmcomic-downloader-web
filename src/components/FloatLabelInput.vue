@@ -53,7 +53,7 @@ defineExpose({ NInputRef })
       <n-el
         tag="span"
         :class="[
-          'float-label bg-white transition-all duration-200 ease-in-out',
+          'float-label bg-[var(--bg-panel)] transition-all duration-200 ease-in-out',
           floating ? `text-0.75rem px-0.5 ${translateY}` : '',
         ]">
         {{ label }}

@@ -3,7 +3,6 @@ import { LogEvent, LogLevel, events, commands } from '../bindings.ts'
 import { useNotification } from 'naive-ui'
 import { onMounted, ref, watch, computed } from 'vue'
 import { useStore } from '../store.ts'
-import { darkTheme } from 'naive-ui'
 
 type LogRecord = LogEvent & { id: number; formatedLog: string }
 
@@ -173,9 +172,9 @@ function parseLevel(line: string): LogLevel {
         </div>
       </div>
 
-      <n-config-provider :theme="darkTheme" :theme-overrides="{ Scrollbar: { width: '8px' } }">
+      <n-config-provider :theme-overrides="{ Scrollbar: { width: '8px' } }">
         <n-virtual-list
-          class="h-[calc(100vh-300px)] overflow-hidden bg-gray-900"
+          class="h-[calc(100vh-300px)] overflow-hidden bg-[var(--bg-raised)]"
           :item-size="42"
           item-resizable
           :hoverable="false"

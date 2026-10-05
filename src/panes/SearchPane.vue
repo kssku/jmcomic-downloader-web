@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref } from 'vue'
 import { commands, SearchSort } from '../bindings.ts'
 import ComicCard from '../components/ComicCard.vue'
@@ -45,7 +45,15 @@ async function pickComic() {
 </script>
 
 <template>
-  <div class="h-full flex flex-col gap-2">
+  <div
+    class="h-full flex flex-col gap-2 rounded-lg"
+    style="
+      background: var(--bg-panel);
+      backdrop-filter: blur(var(--glass-blur, 12px)) saturate(var(--glass-saturate, 1.2));
+      -webkit-backdrop-filter: blur(var(--glass-blur, 12px)) saturate(var(--glass-saturate, 1.2));
+      border: var(--border-width) solid
+          color-mix(in srgb, var(--border-color) calc(var(--border-alpha) * 100%), transparent);
+    ">
     <n-input-group class="box-border px-2 pt-2">
       <FloatLabelInput
         label="关键词"

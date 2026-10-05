@@ -1,4 +1,4 @@
-﻿<script setup lang="tsx">
+<script setup lang="tsx">
 import { ProgressData } from '../../../types.ts'
 import { ref, watchEffect, computed, nextTick } from 'vue'
 import { SelectionArea, SelectionEvent } from '@viselect/vue'
@@ -73,8 +73,9 @@ async function handleProgressDoubleClick(state: DownloadTaskState, chapterId: st
     if (progressData === undefined) {
       return
     }
-    const { comic } = progressData
-    const result = await commands.createDownloadTask(comic, chapterId)
+    // 重下只传 id：后端按 id 重新取详情再建任务。
+    // 进度列表里没有完整 Comic（`/api/tasks` 不给），也不该伪造一个。
+    const result = await commands.downloadById(progressData.comic.id, chapterId)
     if (result.status === 'error') {
       console.error(result.error)
     }
@@ -131,9 +132,10 @@ function useDropdown() {
             if (progressData === undefined) {
               return
             }
-            const { state, comic } = progressData
+            const { state } = progressData
             if (state === 'Cancelled' || state === 'Completed' || state === 'Failed') {
-              const result = await commands.createDownloadTask(comic, chapterId)
+              // 同上：重下走 by-id，后端自己取详情。
+              const result = await commands.downloadById(progressData.comic.id, chapterId)
               if (result.status === 'error') {
                 console.error(result.error)
               }
@@ -240,17 +242,17 @@ function stateToStatus(state: DownloadTaskState): ProgressProps['status'] {
 
 function stateToColorClass(state: DownloadTaskState) {
   if (state === 'Downloading') {
-    return 'text-blue-500'
+    return 'text-[var(--state-info)]'
   } else if (state === 'Pending') {
-    return 'text-gray-500'
+    return 'text-[var(--state-neutral)]'
   } else if (state === 'Paused') {
-    return 'text-yellow-500'
+    return 'text-[var(--state-warning)]'
   } else if (state === 'Failed') {
-    return 'text-red-500'
+    return 'text-[var(--state-error)]'
   } else if (state === 'Completed') {
-    return 'text-green-500'
+    return 'text-[var(--state-success)]'
   } else if (state === 'Cancelled') {
-    return 'text-stone-500'
+    return 'text-[var(--state-neutral)]'
   }
 
   return ''
@@ -274,8 +276,15 @@ function stateToColorClass(state: DownloadTaskState) {
         :data-key="chapterId"
         :class="[
           'selectable p-3 mb-2 rounded-lg',
-          selectedIds.has(chapterId) ? 'selected shadow-md' : 'hover:bg-gray-1',
+          selectedIds.has(chapterId) ? 'selected shadow-md' : '',
         ]"
+        style="
+          background: var(--bg-raised);
+          backdrop-filter: blur(var(--glass-blur, 12px)) saturate(var(--glass-saturate, 1.2));
+          -webkit-backdrop-filter: blur(var(--glass-blur, 12px)) saturate(var(--glass-saturate, 1.2));
+          border: var(--border-width) solid
+          color-mix(in srgb, var(--border-color) calc(var(--border-alpha) * 100%), transparent);
+        "
         @dblclick="() => handleProgressDoubleClick(state, chapterId)"
         @contextmenu="() => handleProgressContextMenu(chapterId)">
         <div class="grid grid-cols-[1fr_1fr]">
@@ -322,11 +331,11 @@ function stateToColorClass(state: DownloadTaskState) {
 }
 
 .selection-container .selected {
-  @apply bg-[rgb(204,232,255)];
+  background-color: color-mix(in srgb, var(--primary-color) 25%, transparent);
 }
 
 :global(.selection-area) {
-  @apply bg-[rgba(46,115,252,0.5)];
+  background-color: color-mix(in srgb, var(--primary-color) 50%, transparent);
 }
 </style>
 
