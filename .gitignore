@@ -7,6 +7,9 @@ node_modules/
 dist/
 .pnpm-store/
 
+# 前端构建产物：由 `pnpm build` 生成后拷入，不入版本控制
+src-server/static/
+
 # 运行时数据
 data/
 logs/
@@ -32,3 +35,7 @@ Thumbs.db
 
 # 图标备份（2026-10-03 换 favicon 时保留）
 public/*.bak-*
+
+# 自动生成：unplugin 产出的类型声明，不入版本控制
+components.d.ts
+auto-imports.d.ts

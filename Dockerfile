@@ -113,11 +113,7 @@ RUN mkdir -p src \
 # 产出一个能跑但没有任何业务逻辑的二进制。
 # touch 把所有源码 mtime 提到当前时刻，确保真实代码一定被重新编译。
 COPY src-server/src ./src
-# 单文件控制台：`main.rs` 用 `include_str!("../static/index.html")` 在编译期
-# 把它嵌进二进制，所以 static 目录必须进构建上下文，且路径与 src 同级。
-COPY src-server/static ./static
 RUN find src -type f -exec touch {} + \
-    && touch static/index.html \
     && cargo build --release \
     && test -x target/release/jmcomic-server
 
@@ -146,6 +142,9 @@ COPY --from=server /build/target/release/jmcomic-server /app/jmcomic-server
 # 前端静态资源目录。`main.rs` 用 `ServeDir::new("static")` 在**运行期**读它——
 # 不再是 `include_str!` 编译期嵌入，所以这个目录必须真实存在于镜像里，
 # 且工作目录（WORKDIR /app）下能被找到。
+#
+# 静态文件来源：本地 `pnpm build` 产物拷贝进 src-server/static/。
+# 构建镜像前请先执行：pnpm build && rm -rf src-server/static/* && cp -r dist/. src-server/static/
 COPY src-server/static /app/static
 
 # 固定静态目录的权限位，不依赖宿主机状态。
