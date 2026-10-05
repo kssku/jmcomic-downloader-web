@@ -146,15 +146,36 @@ CREATE INDEX idx_image_pending ON download_image(chapter_id, state);
 | 字符串 | Rust 变体 |
 |---|---|
 | `"pending"` | `Pending` |
-| （其余见 `types.rs`） | … |
+| `"downloading"` | `Downloading` |
+| `"paused"` | `Paused` |
+| `"cancelled"` | `Cancelled` |
+| `"completed"` | `Completed` |
+| `"failed"` | `Failed` |
 
-`as_str()` / `parse()` 成对定义。
+`as_str()` / `parse()` 成对定义。`parse()` 对未知字符串返回
+`anyhow::bail!("未知的章节任务状态 `{other}`")` —— **不是静默回落**。
 
 **⚠️ 与内存层刻意分开**（源码注释原文）：
 
 > 与内存里的 `DownloadTaskState` 刻意分开：DB 层的状态是**跨进程的持久事实**，而内存层还要额外承载 `Downloading` 这种「本进程正在跑」的瞬态。两者转换见 `DownloadTaskState::to_db` / `from_db`。
 
 **关键点**：`Downloading` **不落库**。容器重启后，一个原本 `Downloading` 的章节会从库里读成它上一次持久化的状态（通常是 `Pending`），而不是「正在下载」。任何新增的瞬态状态都应该走同一条路（只留在内存）。
+
+#### state 的两套表示
+
+任务状态在两条通道上有不同格式，**各自自洽**：
+
+| 层 | 格式 | 来源 |
+|---|---|---|
+| DB / REST | 小写 `"downloading"` | `DbTaskState::as_str()` |
+| WebSocket | PascalCase `"Downloading"` | `DownloadTaskState` 的 serde 序列化 |
+
+**前端只消费 WS 的 state**（PascalCase），REST 的 state 从不进入 UI。
+
+> ⚠️ **防坑提示**：若将来新增 `/api/tasks` 的 REST 消费，**必须同时引入归一化**
+> （把 REST 小写转成 PascalCase 再写入 store），否则状态比较会静默失效
+> ——已完成任务会永远留在「未完成」tab，不报错、类型检查也过。
+> jmcomic 已踩过此坑，见 `src/api/state-adapter.ts` 顶部注释。
 
 #### `DbImageState`（`download_image.state`）
 
