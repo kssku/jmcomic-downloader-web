@@ -150,6 +150,13 @@ export type Config = {
   imgConcurrency: number;
   imgDownloadIntervalSec: number;
   shouldDownloadCover: boolean;
+  /**
+   * 整本下载完成后自动合成 CBZ 单行本，**并在导出成功后删除原图目录**。
+   *
+   * 删除不可逆：整棵 `漫画下载/{漫画ID}/` 会被移除。
+   * 后端的护栏保证「导出失败一律不删图」，但一旦成功就没有回头路。
+   */
+  autoExportCbz: boolean;
   apiBaseUrl: string;
 };
 
@@ -378,7 +385,7 @@ export const commands = {
 	},
 
 	async saveConfig(config: Config): Promise<Result<null, CommandError>> {
-		return await callResult<null>(() => post("/api/config", { config }));
+		return await callResult<null>(() => post("/api/config", config));
 	},
 
   async login(

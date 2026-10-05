@@ -200,6 +200,14 @@ onMounted(async () => {
         <span class="font-bold mt-2">其他</span>
         <n-checkbox class="w-fit" v-model:checked="store.config.shouldDownloadCover">下载封面</n-checkbox>
 
+        <div class="flex flex-col gap-1 mt-2">
+          <n-checkbox class="w-fit" v-model:checked="store.config.autoExportCbz">自动导出 CBZ</n-checkbox>
+          <span class="text-xs text-[var(--text-secondary)]">
+            整本下载完成后自动合成 CBZ 单行本。
+            <span class="text-red">导出成功后会删除原图目录</span>——此操作不可逆，请确认。
+          </span>
+        </div>
+
         <div class="ml-auto mt-2 flex flex-col items-end text-xs text-[var(--text-secondary)]">
           <span>配置文件：{{ configPathHint }}</span>
           <span>下载目录：{{ downloadDirHint }}</span>

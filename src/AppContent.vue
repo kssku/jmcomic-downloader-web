@@ -55,7 +55,11 @@ watch(
     if (store.config === undefined) {
       return
     }
-    await commands.saveConfig(store.config)
+    const result = await commands.saveConfig(store.config)
+    if (result.status === 'error') {
+      message.error(`保存配置失败：${result.error.err_message}`)
+      return
+    }
     message.success('保存配置成功')
   },
   { deep: true },
