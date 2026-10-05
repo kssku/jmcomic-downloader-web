@@ -44,6 +44,40 @@ use crate::types::{ChapterInfo, Comic};
 /// CBZ 的图片扩展名白名单。非图片文件（`章节元数据.json` 等）一律跳过。
 const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "webp", "bmp", "gif"];
 
+/// 「整本未下全」这一业务约束的类型化错误。
+///
+/// 存在的意义是让上层能**按类型**而不是按文案识别它：这个错误从
+/// [`export_comic_cbz`] 深处返回，途中会被 `.context()` 层层包裹，
+/// 到 API 层时 `err_message` 已是一整条字符串链，靠文本匹配极其脆弱
+/// （改一个字的提示语就会让识别静默失效）。
+///
+/// `anyhow::Error::downcast_ref` 能穿透 `.context()` 取到本类型，
+/// 所以 API 层据此填错误码 `INCOMPLETE_CHAPTERS`，前端据此把缺章
+/// 显示成「警告」而不是「系统故障」。
+///
+/// 字段仅用于诊断日志，不参与序列化。
+#[derive(Debug)]
+pub struct IncompleteChaptersError {
+    /// 漫画总章节数。
+    pub total: usize,
+    /// 已下载的章节数。
+    pub downloaded: usize,
+}
+
+impl std::fmt::Display for IncompleteChaptersError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "还有 {} 章未下载（已下载 {}/{}），拒绝导出单行本",
+            self.total.saturating_sub(self.downloaded),
+            self.downloaded,
+            self.total
+        )
+    }
+}
+
+impl std::error::Error for IncompleteChaptersError {}
+
 /// 导出结果，供 API 返回给前端。
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -138,13 +172,15 @@ pub fn export_comic_cbz(comic: &Comic, export_dir: &Path) -> anyhow::Result<Expo
     // ── 1.1 完整性校验：缺章直接拒绝 ────────────────────────────
     let missing = total.saturating_sub(downloaded.len());
     if missing > 0 {
-        return Err(anyhow!(
-            "漫画`{}`还有 {} 章未下载（已下载 {}/{}），拒绝导出单行本",
-            comic.name,
-            missing,
-            downloaded.len(),
-            total
-        ));
+        // 抛**类型化**错误而非裸 `anyhow!`：上层靠 downcast 认出这是业务
+        // 约束（缺章），而不是系统故障，从而回一个可判定的错误码。
+        // 外层 `.context()` 会追加「漫画`X`导出 CBZ 失败」等前缀，
+        // 但 downcast 能穿透这些包裹，文案怎么改都不影响识别。
+        return Err(IncompleteChaptersError {
+            total,
+            downloaded: downloaded.len(),
+        }
+        .into());
     }
 
     downloaded.sort_by_key(|c| c.order);

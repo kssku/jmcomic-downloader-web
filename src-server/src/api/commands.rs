@@ -862,10 +862,24 @@ pub async fn export_comic_cbz(
     .await
     .map_err(|err| CommandError::from("导出单行本失败", anyhow!(err)))?
     .map_err(|err| {
-        CommandError::from(
-            "导出单行本失败",
-            err.context(format!("漫画`{comic_id}`导出 CBZ 失败")),
-        )
+        // 先按**类型**判断是不是「缺章」这一业务约束，再决定是否打错误码。
+        //
+        // `downcast_ref` 能穿透 `export_local_comic` / `export_comic_cbz` 途中
+        // 追加的 `.context()` 包裹，取到 `cbz.rs` 抛出的原始错误类型。
+        // 这里刻意不做任何文本匹配：提示语措辞随时可以改，识别逻辑不受影响。
+        let is_incomplete = err
+            .downcast_ref::<crate::export::IncompleteChaptersError>()
+            .is_some();
+        let err = err.context(format!("漫画`{comic_id}`导出 CBZ 失败"));
+        if is_incomplete {
+            CommandError::with_code(
+                "导出单行本失败",
+                err,
+                crate::errors::CODE_INCOMPLETE_CHAPTERS,
+            )
+        } else {
+            CommandError::from("导出单行本失败", err)
+        }
     })?;
 
     let result = result.ok_or_else(|| {

@@ -1,6 +1,6 @@
 import { DownloadTaskEvent } from './bindings'
 
-export type CurrentTabName = 'progresses' | 'search' | 'chapter' | 'batch' | 'debug'
+export type CurrentTabName = 'progresses' | 'search' | 'chapter' | 'batch' | 'export' | 'debug'
 
 /**
  * 进度列表里展示一条漫画所需的最小字段。

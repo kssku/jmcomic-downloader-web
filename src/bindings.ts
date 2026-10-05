@@ -36,7 +36,37 @@ export type DownloadByIdResult = {
         createdCount: number;
 };
 
-export type CommandError = { err_title: string; err_message: string };
+export type CommandError = {
+	err_title: string;
+	err_message: string;
+	/**
+	 * 可选的机器可读错误码，仅在业务约束场景出现。
+	 * 目前唯一取值见 `EXPORT_CODE_INCOMPLETE_CHAPTERS`。
+	 * 系统故障 / 历史响应里该字段不存在（后端 `skip_serializing_if`）。
+	 */
+	code?: string;
+};
+
+/**
+ * 「整本未下全（缺章）」错误码，与后端 `errors::CODE_INCOMPLETE_CHAPTERS` 对齐。
+ * 前端据此把缺章渲染成警告色，而不是系统故障的错误色。
+ */
+export const EXPORT_CODE_INCOMPLETE_CHAPTERS = "INCOMPLETE_CHAPTERS";
+
+/** `POST /api/export/comic/:comic_id` 的返回体。 */
+export type ExportResult = {
+	fileName: string;
+	filePath: string;
+	fileSize: number;
+};
+
+/** `GET /api/export/list` 的单条记录。 */
+export type ExportedCbz = {
+	fileName: string;
+	filePath: string;
+	fileSize: number;
+	modifiedAt: number;
+};
 
 export type JsonValue =
 	| null
@@ -253,6 +283,7 @@ export type DownloadTaskEvent =
 async function toCommandError(res: Response): Promise<CommandError> {
 	let title = `HTTP ${res.status}`;
 	let message = res.statusText || "请求失败";
+	let code: string | undefined;
 	try {
 		const body = await res.json();
 		if (body && (body.err_title || body.err_message)) {
@@ -263,10 +294,17 @@ async function toCommandError(res: Response): Promise<CommandError> {
 			title = body.errTitle ?? title;
 			message = body.errMessage ?? message;
 		}
+		// 错误码独立读取：两个分支的 body 都可能带它。
+		// 只在确实是字符串时才采纳，避免把脏数据当类型判据。
+		if (body && typeof body.code === "string") {
+			code = body.code;
+		}
 	} catch {
 		// 非 JSON 响应，保留默认文案
 	}
-	return { err_title: title, err_message: message };
+	return code === undefined
+		? { err_title: title, err_message: message }
+		: { err_title: title, err_message: message, code };
 }
 
 /** 发一个 POST 请求，返回原始 Response。 */
@@ -461,6 +499,21 @@ export const commands = {
 	 * 注意返回的 `TaskView.state` 是**小写**（`"completed"`），与 WS 事件的
 	 * PascalCase 不同。调用方写入 store 前必须过 `normalizeState()`。
 	 */
+	/**
+	 * 把整本已下载章节合成一个 CBZ。
+	 * 缺章会被后端拒绝，错误体带 `code: "INCOMPLETE_CHAPTERS"`。
+	 */
+	async exportComic(comicId: string): Promise<Result<ExportResult, CommandError>> {
+		return await callResult<ExportResult>(() =>
+			post(`/api/export/comic/${encodeURIComponent(comicId)}`, {}),
+		);
+	},
+
+	/** 列出导出目录下已有的 CBZ 文件。 */
+	async listExports(): Promise<Result<ExportedCbz[], CommandError>> {
+		return await callResult<ExportedCbz[]>(() => get("/api/export/list"));
+	},
+
 	async listTasks(params: ListTasksParams = {}): Promise<
 		Result<TaskListView, CommandError>
 	> {

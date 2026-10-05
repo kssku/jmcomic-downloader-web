@@ -18,11 +18,13 @@ import {
   PhListChecks,
   PhListBullets,
   PhSlidersHorizontal,
+  PhFileArchive,
 } from '@phosphor-icons/vue'
 import AboutDialog from './dialogs/AboutDialog.vue'
 import { useStore } from './store.ts'
 import LogDialog from './dialogs/LogDialog.vue'
 import BatchDownloadPane from './panes/BatchDownloadPane.vue'
+import ExportPane from './panes/ExportPane.vue'
 import DebugPanel from './components/DebugPanel.vue'
 import { CurrentTabName } from './types.ts'
 
@@ -43,6 +45,7 @@ const paneMenu: { name: CurrentTabName; label: string; icon: unknown }[] = [
   { name: 'search', label: '搜索', icon: PhMagnifyingGlass },
   { name: 'chapter', label: '章节详情', icon: PhListChecks },
   { name: 'batch', label: '批量下载', icon: PhDownloadSimple },
+  { name: 'export', label: '导出', icon: PhFileArchive },
   { name: 'debug', label: '调参', icon: PhSlidersHorizontal },
 ]
 
@@ -195,6 +198,7 @@ onMounted(async () => {
           <search-pane v-else-if="store.currentTabName === 'search'" />
           <chapter-pane v-else-if="store.currentTabName === 'chapter'" />
           <BatchDownloadPane v-else-if="store.currentTabName === 'batch'" />
+          <ExportPane v-else-if="store.currentTabName === 'export'" />
           <DebugPanel v-else />
         </div>
 
