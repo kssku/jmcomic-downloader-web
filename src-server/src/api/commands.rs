@@ -14,8 +14,9 @@ use crate::config::Config;
 use crate::context::AppContext;
 use crate::errors::{CommandError, CommandResult};
 use crate::extensions::AppContextExt;
+use crate::responses::SearchResp;
 use crate::store::{DbImage, DbTask, DbTaskState, ImageRepo, TaskRepo, TaskStats};
-use crate::types::{ChapterInfo, Comic};
+use crate::types::{ChapterInfo, Comic, SearchResult, SearchSort};
 use crate::utils;
 
 // ════════════════════════════════════════════════════════════════
@@ -87,6 +88,67 @@ pub fn save_config(app: &AppContext, config: Config) -> CommandResult<()> {
 // ════════════════════════════════════════════════════════════════
 // 下载任务控制
 // ════════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════
+// 搜索 / 详情
+// ══════════════════════════════════════════════════════════════
+
+pub async fn search_comic(
+    app: &AppContext,
+    keyword: String,
+    sort: SearchSort,
+    page: i32,
+    _categories: Vec<String>,
+) -> CommandResult<SearchResult> {
+    let jm_client = app.get_jm_client();
+
+    let search_resp = jm_client
+        .search(&keyword, i64::from(page), sort)
+        .await
+        .map_err(|err| CommandError::from("搜索漫画失败", err))?;
+
+    let search_result = match search_resp {
+        SearchResp::SearchRespData(data) => SearchResult::from_resp_data(app, data, i64::from(page))
+            .map_err(|err| CommandError::from("搜索漫画失败", err))?,
+        SearchResp::ComicRespData(comic) => {
+            // jm 搜索命中单个漫画时会返回 redirect，这里把它包装成一条搜索结果。
+            let comic = *comic;
+            let id_to_dir_map = crate::utils::create_id_to_dir_map(app)
+                .map_err(|err| CommandError::from("搜索漫画失败", err))?;
+            let id = comic.id.to_string();
+            let item = crate::types::ComicInSearch {
+                id: id.clone(),
+                author: comic.author.join(", "),
+                name: comic.name.clone(),
+                image: String::new(),
+                liked: comic.liked,
+                is_favorite: comic.is_favorite,
+                update_at: 0,
+                is_downloaded: id_to_dir_map.contains_key(&id),
+                comic_download_dir: id_to_dir_map.get(&id).cloned().unwrap_or_default(),
+            };
+            SearchResult(crate::types::SearchList {
+                search_query: keyword.clone(),
+                total: 1,
+                limit: crate::types::SEARCH_PAGE_SIZE,
+                page: i64::from(page),
+                pages: 1,
+                docs: vec![item],
+            })
+        }
+    };
+
+    Ok(search_result)
+}
+
+pub async fn get_comic(app: &AppContext, comic_id: String) -> CommandResult<Comic> {
+    let comic = utils::get_comic(app, &comic_id)
+        .await
+        .context(format!("获取ID为`{comic_id}`的漫画失败"))
+        .map_err(|err| CommandError::from("获取漫画失败", err))?;
+
+    Ok(comic)
+}
 
 pub fn create_download_task(
     app: &AppContext,

@@ -17,7 +17,7 @@ use crate::config::Config;
 use crate::context::AppContext;
 use crate::errors::CommandError;
 use crate::events::DownloadTaskEvent;
-use crate::types::Comic;
+use crate::types::{Comic, SearchResult, SearchSort};
 
 /// 路由共享状态。
 #[derive(Clone)]
@@ -43,12 +43,18 @@ pub fn router(app: AppContext, auth: AuthConfig) -> Router {
 
     // 需要认证的端点（纯 API 后台：认证默认关闭）
     //
-    // 只保留「配置 + 下载 + 任务查询」三类。原前端的
-    // `/server/info`、`/login`、`/user/profile`、`/search`、`/comic*`
-    // 已随去前端一并删除——下载参数走 `/config`，选本走 `/download/*`。
+    // `/server/info`、`/login`、`/user/profile` 已随去前端一并删除。
+    // `/search` 与 `/comic*` 于 c91d294 删除，后因前端重新需要而恢复
+    // （见该 commit 的 restore 提交）——下载参数走 `/config`，选本走 `/download/*`。
     let protected = Router::new()
         // ── 配置 ──────────────────────────────────────────
         .route("/config", get(get_config).post(save_config))
+        // ── 搜索 / 漫画详情（自 c91d294^ 恢复）─────────────
+        // 前端搜索 pane 与章节 pane 依赖这两个端点，语义与
+        // `bindings.ts` 的 `searchComic` / `getComic` 一一对应。
+        .route("/search", get(search_comic).post(post_search))
+        .route("/comic/:comic_id", get(get_comic))
+        .route("/comic", post(post_comic))
         // ── 下载任务 ──────────────────────────────────────
         .route("/download/task", post(create_download_task))
         .route("/download/task/:chapter_id/pause", post(pause_download_task))
@@ -122,6 +128,55 @@ async fn save_config(
 ) -> Result<Json<()>, ApiError> {
     handle!("保存配置失败", commands::save_config(&state.app, config))?;
     Ok(Json(()))
+}
+
+// ════════════════════════════════════════════════════════════════
+// 搜索 / 漫画详情
+// ════════════════════════════════════════════════════════════════
+
+#[derive(Deserialize)]
+struct SearchQuery {
+    keyword: String,
+    sort: SearchSort,
+    page: i32,
+    #[serde(default)]
+    categories: Vec<String>,
+}
+
+async fn search_comic(
+    State(state): State<AppState>,
+    Query(q): Query<SearchQuery>,
+) -> Result<Json<SearchResult>, ApiError> {
+    let result =
+        commands::search_comic(&state.app, q.keyword, q.sort, q.page, q.categories).await?;
+    Ok(Json(result))
+}
+
+/// 前端走的是 `POST /api/search` + `{ keyword, sort, page, categories }`。
+async fn post_search(
+    State(state): State<AppState>,
+    Json(q): Json<SearchQuery>,
+) -> Result<Json<SearchResult>, ApiError> {
+    let result =
+        commands::search_comic(&state.app, q.keyword, q.sort, q.page, q.categories).await?;
+    Ok(Json(result))
+}
+
+async fn get_comic(
+    State(state): State<AppState>,
+    Path(comic_id): Path<String>,
+) -> Result<Json<Comic>, ApiError> {
+    let comic = commands::get_comic(&state.app, comic_id).await?;
+    Ok(Json(comic))
+}
+
+/// 前端走的是 `POST /api/comic` + `{ comicId }`，这里做一层适配。
+async fn post_comic(
+    State(state): State<AppState>,
+    Json(req): Json<ComicIdRequest>,
+) -> Result<Json<Comic>, ApiError> {
+    let comic = commands::get_comic(&state.app, req.comic_id).await?;
+    Ok(Json(comic))
 }
 
 // ════════════════════════════════════════════════════════════════
