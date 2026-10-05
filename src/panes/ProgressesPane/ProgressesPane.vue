@@ -4,6 +4,7 @@ import { commands, events, DownloadTaskState, TaskView } from '../../bindings.ts
 import { useStore } from '../../store.ts'
 import { ProgressData } from '../../types.ts'
 import { normalizeState } from '../../api/state-adapter.ts'
+import { stateColor } from '../../state-colors.ts'
 import { PhPause, PhCaretRight, PhTrash, PhWarningCircle } from '@phosphor-icons/vue'
 
 export type ProgressesPaneTabName = 'uncompleted' | 'completed'
@@ -54,39 +55,23 @@ onMounted(async () => {
   await reloadProgresses()
 })
 
-function stateIndicator(state: string, downloadedImgCount: number, totalImgCount: number): string {
-  let indicator = ''
-  if (state === 'Pending') indicator = '排队中'
-  else if (state === 'Downloading') indicator = '下载中'
-  else if (state === 'Paused') indicator = '已暂停'
-  else if (state === 'Cancelled') indicator = '已取消'
-  else if (state === 'Completed') indicator = '下载完成'
-  else if (state === 'Failed') indicator = '下载失败'
-  if (totalImgCount !== 0) indicator += ` ${downloadedImgCount}/${totalImgCount}`
-  return indicator
-}
-
+// 状态 → 中文标签的单一映射源。
 // 状态列只显示词，不带计数 —— 计数已经在进度数字列里了。
-function stateLabel(state: string): string {
+function stateLabel(state: DownloadTaskState): string {
   if (state === 'Pending') return '排队中'
   if (state === 'Downloading') return '下载中'
   if (state === 'Paused') return '已暂停'
   if (state === 'Cancelled') return '已取消'
   if (state === 'Completed') return '下载完成'
   if (state === 'Failed') return '下载失败'
-  return state
+  // 类型收紧后此分支不可达；显式抛错而非静默返回，与 state-adapter.ts::normalizeState 一致。
+  throw new Error(`Unknown task state: ${state}`)
 }
 
-// 状态色统一走 token。
-// Pending 与 Cancelled 原先同走 --state-neutral，列表里两种状态颜色完全相同。
-// 现在 Cancelled 单列 --state-cancelled（冷灰紫），Pending 保留 neutral。
-function stateColor(state: DownloadTaskState): string {
-  if (state === 'Downloading') return 'var(--state-info)'
-  if (state === 'Paused') return 'var(--state-warning)'
-  if (state === 'Failed') return 'var(--state-error)'
-  if (state === 'Completed') return 'var(--state-success)'
-  if (state === 'Cancelled') return 'var(--state-cancelled)'
-  return 'var(--state-neutral)'
+// 带计数的指示文本。标签部分复用 stateLabel，避免中文映射写第二遍。
+function stateIndicator(state: DownloadTaskState, downloadedImgCount: number, totalImgCount: number): string {
+  const label = stateLabel(state)
+  return totalImgCount !== 0 ? `${label} ${downloadedImgCount}/${totalImgCount}` : label
 }
 
 // TaskView（/api/tasks，state 为小写）-> ProgressData（store，state 为 PascalCase）

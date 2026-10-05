@@ -82,7 +82,7 @@ const logLines = computed<LogLine[]>(() => {
         <div
           class="flex-1 min-h-20 overflow-auto px-3 py-2 rounded-lg text-xs font-mono log-box"
           style="
-            background: rgba(230, 238, 248, 0.30);
+            background: color-mix(in srgb, var(--bg-card) 30%, transparent);
             border: var(--border-width) solid
               color-mix(in srgb, var(--border-color) calc(var(--border-alpha) * 100%), transparent);
           ">

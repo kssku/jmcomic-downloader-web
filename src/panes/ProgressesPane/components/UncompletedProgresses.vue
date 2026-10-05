@@ -3,6 +3,7 @@ import { ProgressData } from '../../../types.ts'
 import { ref, watchEffect, computed, nextTick } from 'vue'
 import { SelectionArea, SelectionEvent } from '@viselect/vue'
 import { commands, DownloadTaskState } from '../../../bindings.ts'
+import { STATE_TO_TEXT_CLASS } from '../../../state-colors.ts'
 import { DropdownOption, NIcon, ProgressProps } from 'naive-ui'
 import { useStore } from '../../../store.ts'
 import {
@@ -240,24 +241,6 @@ function stateToStatus(state: DownloadTaskState): ProgressProps['status'] {
   }
 }
 
-function stateToColorClass(state: DownloadTaskState) {
-  if (state === 'Downloading') {
-    return 'text-[var(--state-info)]'
-  } else if (state === 'Pending') {
-    return 'text-[var(--state-neutral)]'
-  } else if (state === 'Paused') {
-    return 'text-[var(--state-warning)]'
-  } else if (state === 'Failed') {
-    return 'text-[var(--state-error)]'
-  } else if (state === 'Completed') {
-    return 'text-[var(--state-success)]'
-  } else if (state === 'Cancelled') {
-    // 与 Pending 分色：两者原先都是 neutral，列表里无法区分。
-    return 'text-[var(--state-cancelled)]'
-  }
-
-  return ''
-}
 </script>
 
 <template>
@@ -297,7 +280,7 @@ function stateToColorClass(state: DownloadTaskState) {
           </div>
         </div>
         <div class="flex">
-          <n-icon :class="[stateToColorClass(state), 'mr-2']" :size="20">
+          <n-icon :class="[STATE_TO_TEXT_CLASS[state], 'mr-2']" :size="20">
             <PhCloudArrowDown v-if="state === 'Downloading'" />
             <PhClock v-else-if="state === 'Pending'" />
             <PhPause v-else-if="state === 'Paused'" />
@@ -306,7 +289,7 @@ function stateToColorClass(state: DownloadTaskState) {
           <div v-if="isNaN(percentage)" class="ml-auto">{{ indicator }}</div>
           <n-progress
             v-else
-            :class="stateToColorClass(state)"
+            :class="STATE_TO_TEXT_CLASS[state]"
             :status="stateToStatus(state)"
             :percentage="percentage"
             :processing="state === 'Downloading'">
