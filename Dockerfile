@@ -142,29 +142,43 @@ RUN groupadd -g 1000 jm \
 WORKDIR /app
 
 COPY --from=server /build/target/release/jmcomic-server /app/jmcomic-server
-# 纯 API 模式：不拷贝前端 dist，也不再有静态资源目录（main.rs 只挂 REST + WS）。
+
+# 前端静态资源目录。`main.rs` 用 `ServeDir::new("static")` 在**运行期**读它——
+# 不再是 `include_str!` 编译期嵌入，所以这个目录必须真实存在于镜像里，
+# 且工作目录（WORKDIR /app）下能被找到。
+COPY src-server/static /app/static
+
+# 固定静态目录的权限位，不依赖宿主机状态。
+#
+# 为什么必须固定：宿主机若启用了特殊 ACL（飞牛 fnOS 的存储池就是这样），
+# 源文件的权限位可能是 000。Docker 的 COPY 会原样保留权限位，于是镜像里
+# 出现一个 owner 正确但权限为 0 的文件——连 owner 自己都读不了。
+# chown 只改归属、不改权限位，所以必须补 chmod。
+#
+# 为什么用 find 分开处理，而不是 `chmod -R 644` + `chmod -R 755`：
+#   `chmod -R 644` 会把**目录也设成 644**，而目录缺 x 位就无法进入——
+#   ServeDir 根本读不到里面的文件。反过来 `chmod -R 755` 会把文件也变成
+#   可执行，语义错误。文件和目录必须分开设。
+#
+# 文件 644（rw-r--r--）、目录 755（rwxr-xr-x）是静态资源的标准权限。
+RUN find /app/static -type d -exec chmod 755 {} + \
+    && find /app/static -type f -exec chmod 644 {} +
 
 # 数据目录：配置、日志、漫画全部落在这里，必须挂 volume
 #
 # 为什么 chown 之后还要 chmod：
-#   宿主机上若启用了特殊 ACL（飞牛 fnOS 的存储池就是这样），源文件的
-#   权限位可能是 000。Docker 的 COPY 会原样保留权限位，于是镜像里出现
-#   一个 owner 正确但权限为 0 的文件——连 owner 自己都读不了。
-#   实际症状很隐蔽：ServeDir 打不开该文件，转而触发 SPA fallback，
-#   浏览器请求 /favicon.png 得到的是 index.html（200 而非 404），
-#   而同一目录下权限正常的 .js/.css 却能正常返回。
+#   同上——宿主机 ACL 可能让源文件权限位为 000。
 #   chown 只改归属、不改权限位，所以必须补一条 chmod。
 #
 # a+rX：所有文件加可读；目录额外加可进入（X 只对目录和已有可执行位的文件生效）
-RUN mkdir -p /data /app/empty-static \
+RUN mkdir -p /data \
     && chown -R jm:jm /app /data \
-    && chmod -R a+rX /app/empty-static /app/jmcomic-server
+    && chmod -R a+rX /app/static /app/jmcomic-server
 VOLUME ["/data"]
 
 USER jm
 
 ENV JM_DATA_DIR=/data \
-    JM_STATIC_DIR=/app/empty-static \
     JM_BIND=0.0.0.0 \
     JM_PORT=8080 \
     TZ=Asia/Shanghai

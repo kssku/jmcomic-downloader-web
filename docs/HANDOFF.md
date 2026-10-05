@@ -43,7 +43,7 @@ NAS 现在 `git pull` 能拿到了。
 > 2026-10-04 重写了 `69d28e0` 的作者（`root <root@mx>` → `kssku`），其后 5 条连带改写 hash，
 > **文件内容零改动**（6 个 tree hash 逐个比对完全相同）。旧链备份在本地分支 `backup-before-rewrite-a98f720`。
 
-> **镜像注意**：`de3c825`（原 `135b482`）改的是 `src-server/static/index.html`，它被 `include_str!` **编译进二进制**。
+> **镜像注意**：`de3c825`（原 `135b482`）改的是 `src-server/static/index.html`，它被 `ServeDir` 在**运行期**托管（COPY 进镜像）。
 > 正在跑的容器镜像可能仍是改动前的旧前端。要验证那三个修复，需 `docker build` 重建，重启容器没用。
 
 ---
@@ -257,13 +257,36 @@ docker build -t jmcomic-server:api-only -f Dockerfile .
 
 **在 `cargo build --release` 那步去看，`Build Cache` 会显示 0B**——因为该层缓存要等指令结束才落盘。这是正常现象，**不是卡住**。
 
-### 前端是 `include_str!` 编译进二进制的
+### 静态托管相关的 Dockerfile 改动（2026-10-04）
 
-`main.rs:82`：`Html(include_str!("../static/index.html"))`
+从「编译期嵌入」改为「运行期 `ServeDir` 托管」时，Dockerfile 有四处改动：
 
-**改了 `index.html` 必须重新 `docker build`**，光重启容器没用。Dockerfile 第 116-118 行专门为它拷 `static` 目录。
+1. **runtime 阶段新增** `COPY src-server/static /app/static` —— 静态目录必须真实存在于镜像里。
+2. **紧跟 `RUN find` 固定权限位**，而不是 `chmod -R`：
+   ```dockerfile
+   RUN find /app/static -type d -exec chmod 755 {} + \
+       && find /app/static -type f -exec chmod 644 {} +
+   ```
+   **为什么必须分开**：`chmod -R 644` 会把**目录也设成 644**，目录缺 x 位就进不去；`chmod -R 755` 会把文件也变成可执行。文件和目录权限语义不同，必须分开设。
 
-> 注意：Dockerfile 里 **web 阶段（`pnpm exec vite build`）是注释掉的**，这是**有意为之**——项目有两条前端路线，后端自带的单文件控制台（47832 字节 / 1270 行，零外部依赖）已够用。**不要误以为「没有前端」。**
+   **为什么必须显式固定**：宿主机若启用特殊 ACL（飞牛 fnOS 的存储池），源文件权限位可能是 `000`。Docker 的 `COPY` 原样保留权限位，`chown` 只改归属不改权限，所以必须补 `chmod`。
+3. **移除 `JM_STATIC_DIR` 环境变量** —— 它是纯 API 模式时代的占位符，Rust 源码从不读它。
+4. **移除 `/app/empty-static` 占位目录** —— 不再需要「假装静态目录存在」。
+
+**回归验证**：镜像内 `/app/static` 应为 `755 jm:jm`，`index.html` 为 `644 jm:jm`（已实测确认）。
+
+### 前端是 `ServeDir` 运行期托管 `static/` 目录的
+
+`main.rs`：`api.fallback_service(ServeDir::new("static"))`
+
+> **2026-10-04 变更**：不再是 `Html(include_str!("../static/index.html"))` 编译期嵌入。
+> 改为运行期读 `static/` 目录，`tower-http` 启用 `fs` feature。
+
+**不挂任何 SPA fallback。** `ServeDir::new()` 的 `fallback` 默认是 `None`，文件存在就返回，不存在直接 404。曾出现的「`/favicon.png` 返回 index.html」根因是外层多挂了一层 SPA fallback 拦截了 ServeDir 的 404 —— 只要不挂 fallback，该 bug 在结构上不可能发生。
+
+**改了 `index.html` 仍须重新 `docker build`**（因为静态资源是 COPY 进镜像的，不是挂载的），光重启容器没用。Dockerfile 用 `COPY src-server/static /app/static` + `find/chmod` 固定权限位。
+
+> 注意：Dockerfile 里 **web 阶段（`pnpm exec vite build`）是注释掉的**，这是**有意为之**——项目有两条前端路线，后端自带的单文件控制台（当前工作区 64452 字节，零外部依赖）已够用。**不要误以为「没有前端」。**
 
 ### `.env`（测试专用，未提交，已被 gitignore 忽略）
 
@@ -342,8 +365,8 @@ pnpm test:console:mutation   # 预期 exit 0（证明测试有效）
 cd src-server && cargo clippy --all-targets -- -D warnings && cargo test --lib
 
 # 4. 若要验证那三个前端修复在真实容器里生效，必须重建镜像
-#    前端是 include_str! 编译进二进制的，重启容器没用
-cd .. && docker build -t jmcomic-server:api-only .
+#    前端资源是 COPY 进镜像的（ServeDir 运行期读 static/），重启容器没用
+cd .. && docker build -t jmcomic-server:api-only -f Dockerfile .
 ```
 
 ---
@@ -374,7 +397,7 @@ GitHub 上现在有 `cb3d0b5`（原 `69d28e0`，作者已重写），包含：
 
 | 文件 | 作用 |
 |---|---|
-| `src-server/static/index.html` | 单文件控制台（1271 行，`include_str!` 进二进制）|
+| `src-server/static/index.html` | 单文件控制台（`ServeDir` 运行期托管，COPY 进镜像）|
 | `src-server/src/api/commands.rs:35-43` | `save_config` 的差量检测（含新增 `concurrency_changed`）|
 | `src-server/src/api/commands.rs:59-67` | 并发度更新日志 |
 | `src-server/src/context.rs:205` | `apply_concurrency`（原名 `reload_download_manager`）|
@@ -394,7 +417,7 @@ GitHub 上现在有 `cb3d0b5`（原 `69d28e0`，作者已重写），包含：
 
 测试基建方面：后端有 59 个测试 + clippy 干净；前端测试**已入库** `src-server/tests/frontend/`，共 37 项（18 行为 + 12 WS + 7 注入）+ 一个变异测试，不依赖 `/tmp`、不依赖网络与数据库。
 
-**接手时最该知道的一件事**：`de3c825`（原 `135b482`）改的是 `include_str!` 编译进二进制的 `index.html`。
+**接手时最该知道的一件事**：`de3c825`（原 `135b482`）改的是 `ServeDir` 运行期托管的 `index.html`。
 正在跑的容器镜像**可能仍是旧前端**——要验证那三个修复，必须 `docker build` 重建，重启容器无效。
 
 **仍开放的事项**（有意未动，见 §6）：

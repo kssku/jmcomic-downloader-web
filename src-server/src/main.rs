@@ -1,10 +1,10 @@
 //! jmcomic-server 入口。
 //!
-//! 纯 API 后台：只提供 REST API + WebSocket，不再托管前端静态资源。
+//! 后台服务：REST API + WebSocket + 静态前端资源托管。
 //!
 //! 职责：
 //! 1. 初始化路径 / 配置 / 日志 / 运行期组件（`AppContext`）。
-//! 2. 组装 axum Router：REST API + WebSocket。
+//! 2. 组装 axum Router：REST API + WebSocket + `static/` 静态目录。
 //! 3. 监听 HTTP 端口常驻。
 //!
 //! 环境变量：
@@ -17,12 +17,11 @@
 use std::net::SocketAddr;
 
 use anyhow::Context as _;
-use axum::response::Html;
-use axum::routing::get;
 use axum::Router;
 use jmcomic_server::api::routes;
 use jmcomic_server::auth::AuthConfig;
 use jmcomic_server::context::{AppContext, Paths};
+use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
 #[tokio::main]
@@ -68,18 +67,19 @@ async fn main() -> anyhow::Result<()> {
 /// 层级顺序（从外到内）：
 /// 1. `TraceLayer` —— 请求日志。
 /// 2. `/api/*` 路由（内部自带认证中间件，默认关闭）。
-/// 3. `/` —— 单文件控制台（编译期嵌入，无外部静态目录）。
+/// 3. `ServeDir` —— 托管 `static/` 目录下的前端资源。
+///
+/// 注意：**不挂任何 SPA fallback**。`ServeDir::new()` 的 `fallback` 默认是
+/// `None`，文件存在就返回，不存在直接 404。曾经那个
+/// 「`/favicon.png` 返回 index.html」的 bug，根因是外层多挂了一层 SPA
+/// fallback 拦截了 ServeDir 的 404 —— 只要不挂 fallback，这个 bug 在结构上
+/// 不可能发生。
 fn build_router(app: AppContext, auth: AuthConfig) -> Router {
     // `routes::router` 已经带好 state 与认证中间件（含 `/ws`）。
     let api = Router::new().nest("/api", routes::router(app, auth));
 
-    api.route("/", get(console))
+    api.fallback_service(ServeDir::new("static"))
         .layer(TraceLayer::new_for_http())
-}
-
-/// 单文件控制台。直接嵌进二进制，容器里不需要额外挂载目录。
-async fn console() -> Html<&'static str> {
-    Html(include_str!("../static/index.html"))
 }
 
 /// 监听地址，来自 `JM_BIND` / `JM_PORT`。

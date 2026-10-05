@@ -10,35 +10,43 @@
    设计令牌：所有颜色 / 圆角 / 阴影集中于此，换主题只改这一段
    ═══════════════════════════════════════════════════════════════ */
 :root {
-  --bg-0: #0b0e14;   /* 最底：页面背景 */
-  --bg-1: #11151d;   /* 卡片 */
-  --bg-2: #161b25;   /* 卡片内嵌块 */
-  --bg-3: #1c222e;   /* 悬停 / 轨道 */
+  /* 底色改为带紫调的深蓝灰（非纯黑）：纯黑在长时间阅读下边界过硬，
+     带一点紫调既贴合二次元皮肤，又不牺牲正文对比度 */
+  --bg-0: #13111c;   /* 最底：页面背景 */
+  --bg-1: #1a1726;   /* 卡片 */
+  --bg-2: #211d30;   /* 卡片内嵌块 */
+  --bg-3: #2a2539;   /* 悬停 / 轨道 */
 
-  --border: #232a38;
-  --border-strong: #2e3748;
+  --border: #2e2941;
+  --border-strong: #3d3654;
 
-  --fg-0: #e8ecf4;   /* 主文字 */
-  --fg-1: #a8b2c4;   /* 次要文字 */
-  --fg-2: #6b7689;   /* 弱化文字 */
-  --fg-3: #4a5466;   /* 占位符 */
+  --fg-0: #ece9f5;   /* 主文字 */
+  --fg-1: #a9a2c0;   /* 次要文字 */
+  --fg-2: #7a7391;   /* 弱化文字 */
+  --fg-3: #565073;   /* 占位符 */
 
-  --accent: #4f7cff;
-  --accent-hover: #6b91ff;
-  --accent-dim: rgba(79, 124, 255, 0.12);
+  /* 主色：低饱和粉紫。核心工作区（表格/日志/进度）仍用中性灰，
+     此色只用于品牌、统计数字、焦点态等点缀位 */
+  --accent: #c77dff;
+  --accent-hover: #d59bff;
+  --accent-dim: rgba(199, 125, 255, 0.14);
 
-  --success: #34d399;
-  --success-dim: rgba(52, 211, 153, 0.12);
-  --warning: #fbbf24;
-  --warning-dim: rgba(251, 191, 36, 0.12);
-  --danger: #f87171;
-  --danger-dim: rgba(248, 113, 113, 0.12);
+  /* 状态色柔和化：降低饱和度以贴合整体色调，同时保持可辨识度 */
+  --success: #6ee7b7;
+  --success-dim: rgba(110, 231, 183, 0.13);
+  --warning: #fcd34d;
+  --warning-dim: rgba(252, 211, 77, 0.13);
+  --danger: #fb9db8;
+  --danger-dim: rgba(251, 157, 184, 0.13);
 
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 14px;
+  /* 圆角加大：6/10/14 → 8/14/20 */
+  --r-sm: 8px;
+  --r-md: 14px;
+  --r-lg: 20px;
 
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.18);
+  /* 柔光替代硬阴影：紫调外发光，而非黑色投影 */
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.28), 0 8px 28px rgba(199, 125, 255, 0.07);
+  --glow: 0 0 0 1px rgba(199, 125, 255, 0.18), 0 6px 24px rgba(199, 125, 255, 0.13);
 
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
           "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
@@ -76,7 +84,8 @@ body {
 /* ═══════════════════════════════════════════════════════════════
    布局骨架
    ═══════════════════════════════════════════════════════════════ */
-.shell { max-width: 1680px; margin: 0 auto; padding: 0 24px 48px; }
+/* 超宽屏下收窄：1680px 时左栏表单挤、右栏表格行过长，视线要来回扫 */
+.shell { max-width: 1440px; margin: 0 auto; padding: 0 24px 48px; }
 
 .topbar {
   position: sticky;
@@ -87,16 +96,17 @@ body {
   gap: 14px;
   padding: 14px 0;
   margin-bottom: 22px;
-  background: rgba(11, 14, 20, 0.85);
+  background: rgba(19, 17, 28, 0.85);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
 }
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand-mark {
-  width: 30px; height: 30px;
+  width: 32px; height: 32px;
   display: grid; place-items: center;
-  border-radius: 8px;
-  background: linear-gradient(135deg, var(--accent), #7c5cff);
+  border-radius: 11px;
+  background: linear-gradient(135deg, #c77dff, #7c5cff);
+  box-shadow: 0 4px 14px rgba(199, 125, 255, 0.3);
   font-size: 15px; font-weight: 700; color: #fff;
   flex-shrink: 0;
 }
@@ -192,19 +202,42 @@ textarea {
   min-height: 100px;
 }
 input[type="checkbox"] { accent-color: var(--accent); width: auto; }
+/* 窄输入框（如「清理 N 天前」的 N），避免行内硬编码宽度 */
+.input-xs { width: 68px; }
 
 /* ═══════════════════════════════════════════════════════════════
    卡片 / 分栏
    ═══════════════════════════════════════════════════════════════ */
+/* 布局范式：顶部 KPI 通栏 → 中部操作卡网格 → 底部表格/日志通栏
+   旧版「左窄列 + 右宽列」实测左列 2501px、右列 696px，高度差 3.6 倍，
+   滚动时右半边出现大片空白 —— 这才是「又挤又空」的真正根因，
+   单纯调列宽数字无法解决，故改为分层通栏结构 */
 .layout {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* 操作卡区：自适应网格，窄屏 1 列、中屏 2 列、宽屏 3 列 */
+.ops-grid {
   display: grid;
-  grid-template-columns: minmax(340px, 400px) minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 20px;
   align-items: start;
 }
-@media (max-width: 1080px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+/* 单行本导出含导出列表，让它跨满整行避免列表被压窄 */
+.ops-grid > .card:nth-child(3) { grid-column: 1 / -1; }
 
-.col { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+/* 底部工作区：任务表 + 事件日志并排，宽屏下日志占 1/3 */
+.work-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 1180px) {
+  .work-grid { grid-template-columns: minmax(0, 1fr); }
+}
 
 .card {
   background: var(--bg-1);
@@ -212,27 +245,33 @@ input[type="checkbox"] { accent-color: var(--accent); width: auto; }
   border-radius: var(--r-lg);
   padding: 18px 20px;
   box-shadow: var(--shadow);
+  transition: border-color 0.18s;
 }
+.card:hover { border-color: var(--border-strong); }
 .card > h2 {
-  margin: 0 0 14px;
-  font-size: 12px;
+  margin: 0 0 16px;
+  /* 中文无大小写：原先 uppercase + letter-spacing 只留下被拉散的字距，
+     反而显得松散；改用字号/字重/颜色建立层级 */
+  font-size: 13px;
   font-weight: 600;
   color: var(--fg-0);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 .card > h2::before {
   content: '';
-  width: 3px; height: 12px;
+  width: 3px; height: 14px;
   border-radius: 2px;
-  background: var(--accent);
+  background: linear-gradient(180deg, var(--accent), #7c5cff);
   flex-shrink: 0;
 }
 
 .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* 与上方内容拉开一档间距（替代原先散落的 inline margin-top:14px） */
+.row-gap { margin-top: 16px; }
+
 .field { margin-bottom: 12px; }
 .field:last-child { margin-bottom: 0; }
 .field > label {
@@ -250,37 +289,47 @@ input[type="checkbox"] { accent-color: var(--accent); width: auto; }
    ═══════════════════════════════════════════════════════════════ */
 .stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
-  gap: 8px;
+  /* 统计通栏后容器宽度充足：固定 5 列，消灭原先「4 列装 5 格、
+     第 5 格掉到第二行」的孤行问题 */
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 900px) {
+  .stats { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
 }
 .stat {
-  padding: 10px 8px;
+  padding: 14px 12px;
   border-radius: var(--r-md);
   background: var(--bg-2);
   border: 1px solid var(--border);
   text-align: center;
-  transition: border-color 0.15s, transform 0.15s;
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
 }
-.stat:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+.stat:hover { border-color: var(--border-strong); transform: translateY(-1px); box-shadow: var(--glow); }
 .stat .n {
   display: block;
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 1.2;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.15;
   font-variant-numeric: tabular-nums;
-  color: var(--fg-0);
+  /* 渐变文字（token 层风格表达，不影响可读性） */
+  background: linear-gradient(135deg, var(--fg-0), var(--accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 .stat .k {
   display: block;
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--fg-2);
-  margin-top: 2px;
+  margin-top: 3px;
   letter-spacing: 0.03em;
 }
-.stat[data-tone="active"] .n { color: var(--accent); }
-.stat[data-tone="ok"] .n { color: var(--success); }
-.stat[data-tone="warn"] .n { color: var(--warning); }
-.stat[data-tone="bad"] .n { color: var(--danger); }
+/* 有色调的统计格：保持实色，避免与渐变叠加后对比度下降 */
+.stat[data-tone="active"] .n { background: none; color: var(--accent); -webkit-text-fill-color: var(--accent); }
+.stat[data-tone="ok"] .n     { background: none; color: var(--success); -webkit-text-fill-color: var(--success); }
+.stat[data-tone="warn"] .n   { background: none; color: var(--warning); -webkit-text-fill-color: var(--warning); }
+.stat[data-tone="bad"] .n    { background: none; color: var(--danger); -webkit-text-fill-color: var(--danger); }
 
 /* ═══════════════════════════════════════════════════════════════
    状态徽章
@@ -344,23 +393,37 @@ input[type="checkbox"] { accent-color: var(--accent); width: auto; }
 /* ═══════════════════════════════════════════════════════════════
    表格
    ═══════════════════════════════════════════════════════════════ */
-.table-wrap { overflow-x: auto; margin: 0 -20px; padding: 0 20px; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+/* 去掉负边距溢出 hack：它让 sticky 表头的水平滚动基准错位，
+   滚动时左右内容还会贴边。改为容器内滚动，纵向留出表头空间 */
+.table-wrap {
+  overflow-x: auto;
+  overflow-y: visible;
+  margin: 0;
+  padding: 0;
+}
+table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+/* 列宽约束：原先长文本列无上限，整行被拉到 1000px+，视线要横跨整屏 */
+th:nth-child(1), td:nth-child(1) { width: 38px; }
+th:nth-child(2), td:nth-child(2) { width: auto; }      /* 漫画/章节：吃掉剩余 */
+th:nth-child(3), td:nth-child(3) { width: 104px; }     /* 状态 */
+th:nth-child(4), td:nth-child(4) { width: 170px; }     /* 进度 */
+th:nth-child(5), td:nth-child(5) { width: 64px; }      /* 重试 */
+th:nth-child(6), td:nth-child(6) { width: 210px; }     /* 操作 */
 th {
-  position: sticky; top: 0;
+  /* 表格在 .table-wrap 内横向滚动，且卡片本身不滚动，
+     故 sticky top 无有效参照 —— 去掉，避免产生「半粘住」的错觉 */
   text-align: left;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--fg-2);
-  padding: 8px 10px;
-  background: var(--bg-1);
+  color: var(--fg-1);
+  letter-spacing: 0;
+  padding: 9px 12px;
+  background: var(--bg-2);
   border-bottom: 1px solid var(--border-strong);
   white-space: nowrap;
 }
 td {
-  padding: 9px 10px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
 }
@@ -369,29 +432,32 @@ tbody tr:hover { background: var(--bg-2); }
 tbody tr:last-child td { border-bottom: none; }
 
 .cell-title {
-  max-width: 200px;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--fg-0);
+  font-weight: 500;
 }
 .cell-sub {
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--fg-2);
   font-family: var(--mono);
-  max-width: 200px;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  margin-top: 2px;
 }
 .cell-num { font-variant-numeric: tabular-nums; color: var(--fg-1); }
-.cell-check { width: 34px; padding-right: 0; text-align: center; }
+/* 列宽已由 th:nth-child 统一控制，此处只留对齐与内边距 */
+.cell-check { padding-left: 14px; padding-right: 0; text-align: left; }
 .cell-check input { margin: 0; cursor: pointer; }
 tr:has(.row-check:checked) { background: color-mix(in srgb, var(--accent) 8%, transparent); }
-.cell-actions { display: flex; gap: 5px; flex-wrap: nowrap; }
+.cell-actions { display: flex; gap: 6px; flex-wrap: nowrap; }
 
-.empty { padding: 52px 20px; text-align: center; color: var(--fg-2); }
-.empty-icon { font-size: 32px; opacity: 0.3; margin-bottom: 10px; }
+.empty { padding: 56px 20px; text-align: center; color: var(--fg-2); }
+.empty-icon { font-size: 30px; opacity: 0.28; margin-bottom: 12px; line-height: 1; }
 
 /* ═══════════════════════════════════════════════════════════════
    过滤标签页
@@ -400,30 +466,33 @@ tr:has(.row-check:checked) { background: color-mix(in srgb, var(--accent) 8%, tr
   display: flex;
   align-items: center;
   gap: 2px;
-  margin-bottom: 12px;
+  margin: 0 0 14px;
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
+  scrollbar-width: none;
 }
+.tabs::-webkit-scrollbar { display: none; }
 .tabs button {
   background: transparent;
   color: var(--fg-2);
   border: none;
   border-bottom: 2px solid transparent;
   border-radius: 0;
-  padding: 8px 12px;
-  font-size: 12.5px;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-weight: 500;
   transition: color 0.15s, border-color 0.15s;
 }
 .tabs button:hover:not(:disabled) { color: var(--fg-0); background: transparent; }
 .tabs button.active { color: var(--fg-0); border-bottom-color: var(--accent); }
 .tabs .count {
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--fg-3);
-  margin-left: 4px;
+  margin-left: 5px;
   font-variant-numeric: tabular-nums;
 }
 .tabs button.active .count { color: var(--accent); }
-.tabs .filter-input { width: 140px; margin-bottom: 6px; flex-shrink: 0; }
+.tabs .filter-input { width: 150px; margin-bottom: 8px; flex-shrink: 0; padding: 6px 10px; }
 
 /* ═══════════════════════════════════════════════════════════════
    日志
@@ -552,10 +621,22 @@ tr:has(.row-check:checked) { background: color-mix(in srgb, var(--accent) 8%, tr
     <button class="ghost sm" onclick="refreshAll()">刷新全部</button>
   </header>
 
-  <div class="layout">
+  <!-- 顶层：统计 KPI 通栏（原先挤在左列底部，5 格被压成 4 列 + 孤行） -->
+  <section class="card">
+    <h2>任务统计</h2>
+    <div class="stats" id="stats"></div>
+    <div class="row row-gap">
+      <label for="purge-days" class="muted">清理</label>
+      <input id="purge-days" type="text" inputmode="numeric" value="30"
+             class="input-xs" aria-describedby="purge-msg">
+      <span class="muted">天前的终态任务</span>
+      <button class="ghost sm" id="btn-purge" onclick="purgeTasks()">清理</button>
+      <span class="muted" id="purge-msg" aria-live="polite"></span>
+    </div>
+  </section>
 
-    <!-- ══ 左列 ══ -->
-    <div class="col">
+  <!-- 操作卡区：自适应 1/2/3 列网格，取代原先竖着堆成 2501px 的窄列 -->
+  <div class="ops-grid">
 
       <section class="card">
         <h2>批量投递</h2>
@@ -608,31 +689,18 @@ tr:has(.row-check:checked) { background: color-mix(in srgb, var(--accent) 8%, tr
       </section>
 
       <section class="card">
-        <h2>任务统计</h2>
-        <div class="stats" id="stats"></div>
-        <div class="row" style="margin-top:14px">
-          <label for="purge-days" class="muted">清理</label>
-          <input id="purge-days" type="text" inputmode="numeric" value="30"
-                 style="width:64px" aria-describedby="purge-msg">
-          <span class="muted">天前的终态任务</span>
-          <button class="ghost sm" id="btn-purge" onclick="purgeTasks()">清理</button>
-          <span class="muted" id="purge-msg" aria-live="polite"></span>
-        </div>
-      </section>
-
-      <section class="card">
         <h2>运行配置</h2>
         <div id="config-fields"></div>
-        <div class="row" style="margin-top:14px">
+        <div class="row row-gap">
           <button onclick="saveConfig()">保存</button>
           <button class="ghost" onclick="loadConfig()">重新载入</button>
         </div>
       </section>
 
-    </div>
+  </div>
 
-    <!-- ══ 右列 ══ -->
-    <div class="col">
+  <!-- 工作区：任务表（通栏主体）+ 事件日志（右侧），取代原先右列 696px 的短柱 -->
+  <div class="work-grid">
 
       <section class="card">
         <div class="tabs" role="tablist" id="tabs">
@@ -665,7 +733,7 @@ tr:has(.row-check:checked) { background: color-mix(in srgb, var(--accent) 8%, tr
           </table>
         </div>
 
-        <div class="row" style="margin-top:14px">
+        <div class="row row-gap">
           <span class="muted" id="task-total"></span>
           <div class="spacer"></div>
           <button class="ghost sm danger" id="btn-bulk-delete" disabled
@@ -681,8 +749,8 @@ tr:has(.row-check:checked) { background: color-mix(in srgb, var(--accent) 8%, tr
         <div class="log" id="log" role="log" aria-live="polite" aria-label="事件日志"></div>
       </section>
 
-    </div>
   </div>
+
 </div>
 
 <div class="toasts" id="toasts" aria-live="polite"></div>

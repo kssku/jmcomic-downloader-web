@@ -49,7 +49,7 @@ indexmap = { version = "2.9.0" }
 #     axum-extra 的 typed-header 特性后续需要时再加。
 axum = { version = "0.7", features = ["ws"] }
 tower = { version = "0.5" }
-tower-http = { version = "0.5", features = ["trace", "cors"] }
+tower-http = { version = "0.5", features = ["trace", "cors", "fs"] }
 # WebSocket 的 Sink/Stream 拆分会用到
 futures-util = { version = "0.3" }
 
