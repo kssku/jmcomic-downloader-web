@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { commands } from '../bindings.ts'
 import { useStore } from '../store.ts'
-import { ref, computed, onMounted } from 'vue'
+import type { Config } from '../bindings.ts'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 
 const message = useMessage()
@@ -9,6 +10,42 @@ const message = useMessage()
 const store = useStore()
 
 const showing = defineModel<boolean>('showing', { required: true })
+
+// 弹窗内的编辑副本。不直接绑 store.config——否则用户改一下全局状态就变了，
+// 「关弹窗不保存」也就无从谈起。打开弹窗时从 store 拷一份，保存成功才写回。
+// Config 全是标量字段（无嵌套），浅拷贝足够。
+const localConfig = ref<Config | null>(null)
+
+const saving = ref(false)
+
+watch(
+  showing,
+  (isShowing) => {
+    if (isShowing && store.config !== undefined) {
+      localConfig.value = { ...store.config }
+    }
+  },
+  { immediate: true },
+)
+
+async function handleSave() {
+  if (localConfig.value === null) {
+    return
+  }
+  saving.value = true
+  try {
+    const result = await commands.saveConfig(localConfig.value)
+    if (result.status === 'error') {
+      message.error(`保存失败：${result.error.err_message}`)
+      return // 不关闭弹窗，让用户能重试
+    }
+    store.config = { ...localConfig.value }
+    message.success('保存成功')
+    showing.value = false
+  } finally {
+    saving.value = false
+  }
+}
 
 const dirFmt = ref<string>(store.config?.dirFmt ?? '')
 const proxyHost = ref<string>(store.config?.proxyHost ?? '')
@@ -37,11 +74,11 @@ onMounted(async () => {
 </script>
 
 <template>
-  <n-modal v-model:show="showing" v-if="store.config !== undefined">
+  <n-modal v-model:show="showing" v-if="localConfig !== null">
     <n-dialog class="w-140!" :showIcon="false" title="配置" @close="showing = false">
       <div class="flex flex-col">
         <span class="font-bold">下载格式</span>
-        <n-radio-group v-model:value="store.config.downloadFormat">
+        <n-radio-group v-model:value="localConfig.downloadFormat">
           <n-tooltip placement="top" trigger="hover">
             <div>原图不为jpg时，会自动转换为jpg</div>
             <template #trigger>
@@ -78,7 +115,7 @@ onMounted(async () => {
               <n-input-group-label size="small">章节并发数</n-input-group-label>
               <n-input-number
                 class="w-full"
-                v-model:value="store.config.chapterConcurrency"
+                v-model:value="localConfig.chapterConcurrency"
                 size="small"
                 @update:value="message.warning('对章节并发数的修改需要重启才能生效')"
                 :min="1"
@@ -88,7 +125,7 @@ onMounted(async () => {
               <n-input-group-label size="small">每个章节下载完成后休息</n-input-group-label>
               <n-input-number
                 class="w-full"
-                v-model:value="store.config.chapterDownloadIntervalSec"
+                v-model:value="localConfig.chapterDownloadIntervalSec"
                 size="small"
                 :min="0"
                 :parse="(x: string) => Number(x)" />
@@ -100,7 +137,7 @@ onMounted(async () => {
               <n-input-group-label size="small">图片并发数</n-input-group-label>
               <n-input-number
                 class="w-full"
-                v-model:value="store.config.imgConcurrency"
+                v-model:value="localConfig.imgConcurrency"
                 size="small"
                 @update-value="message.warning('对图片并发数的修改需要重启才能生效')"
                 :min="1"
@@ -110,7 +147,7 @@ onMounted(async () => {
               <n-input-group-label size="small">每张图片下载完成后休息</n-input-group-label>
               <n-input-number
                 class="w-full"
-                v-model:value="store.config.imgDownloadIntervalSec"
+                v-model:value="localConfig.imgDownloadIntervalSec"
                 size="small"
                 :min="0"
                 :parse="(x: string) => Number(x)" />
@@ -120,22 +157,22 @@ onMounted(async () => {
         </div>
 
         <span class="font-bold mt-2">代理类型</span>
-        <n-radio-group v-model:value="store.config.proxyMode" size="small">
+        <n-radio-group v-model:value="localConfig.proxyMode" size="small">
           <n-radio-button value="System">系统代理</n-radio-button>
           <n-radio-button value="NoProxy">直连</n-radio-button>
           <n-radio-button value="Custom">自定义</n-radio-button>
         </n-radio-group>
-        <n-input-group v-if="store.config.proxyMode === 'Custom'" class="mt-1">
+        <n-input-group v-if="localConfig.proxyMode === 'Custom'" class="mt-1">
           <n-input-group-label size="small">http://</n-input-group-label>
           <n-input
             v-model:value="proxyHost"
             size="small"
             placeholder=""
-            @blur="store.config.proxyHost = proxyHost"
-            @keydown.enter="store.config.proxyHost = proxyHost" />
+            @blur="localConfig.proxyHost = proxyHost"
+            @keydown.enter="localConfig.proxyHost = proxyHost" />
           <n-input-group-label size="small">:</n-input-group-label>
           <n-input-number
-            v-model:value="store.config.proxyPort"
+            v-model:value="localConfig.proxyPort"
             size="small"
             placeholder=""
             :parse="(x: string) => parseInt(x)" />
@@ -192,16 +229,16 @@ onMounted(async () => {
             <n-input
               v-model:value="dirFmt"
               size="small"
-              @blur="store.config.dirFmt = dirFmt"
-              @keydown.enter="store.config.dirFmt = dirFmt" />
+              @blur="localConfig.dirFmt = dirFmt"
+              @keydown.enter="localConfig.dirFmt = dirFmt" />
           </template>
         </n-tooltip>
 
         <span class="font-bold mt-2">其他</span>
-        <n-checkbox class="w-fit" v-model:checked="store.config.shouldDownloadCover">下载封面</n-checkbox>
+        <n-checkbox class="w-fit" v-model:checked="localConfig.shouldDownloadCover">下载封面</n-checkbox>
 
         <div class="flex flex-col gap-1 mt-2">
-          <n-checkbox class="w-fit" v-model:checked="store.config.autoExportCbz">自动导出 CBZ</n-checkbox>
+          <n-checkbox class="w-fit" v-model:checked="localConfig.autoExportCbz">自动导出 CBZ</n-checkbox>
           <span class="text-xs text-[var(--text-secondary)]">
             整本下载完成后自动合成 CBZ 单行本。
             <span class="text-red">导出成功后会删除原图目录</span>——此操作不可逆，请确认。
@@ -211,6 +248,13 @@ onMounted(async () => {
         <div class="ml-auto mt-2 flex flex-col items-end text-xs text-[var(--text-secondary)]">
           <span>配置文件：{{ configPathHint }}</span>
           <span>下载目录：{{ downloadDirHint }}</span>
+        </div>
+
+        <div class="mt-4 flex justify-end gap-2">
+          <n-button size="small" :disabled="saving" @click="showing = false">取消</n-button>
+          <n-button size="small" type="primary" :loading="saving" :disabled="saving" @click="handleSave">
+            保存
+          </n-button>
         </div>
       </div>
     </n-dialog>

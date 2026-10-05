@@ -50,21 +50,6 @@ const paneMenu: { name: CurrentTabName; label: string; icon: unknown }[] = [
 ]
 
 watch(
-  () => store.config,
-  async () => {
-    if (store.config === undefined) {
-      return
-    }
-    const result = await commands.saveConfig(store.config)
-    if (result.status === 'error') {
-      message.error(`保存配置失败：${result.error.err_message}`)
-      return
-    }
-    message.success('保存配置成功')
-  },
-  { deep: true },
-)
-watch(
   () => store.config?.token,
   async () => {
     const result = await commands.getUserProfile()
